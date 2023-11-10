@@ -79,7 +79,7 @@ class MLP(nn.Module):
         return x
 
 class FNO2d(nn.Module):
-    def __init__(self, modes1, modes2, width, padding = 8, channels = 3):
+    def __init__(self, modes1, modes2, width, padding = 8, channels = 3, channelsout = 3):
         super(FNO2d, self).__init__()
 
         """
@@ -114,7 +114,7 @@ class FNO2d(nn.Module):
         self.w2 = nn.Conv2d(self.width, self.width, 1)
         self.w3 = nn.Conv2d(self.width, self.width, 1)
         self.norm = nn.InstanceNorm2d(self.width)
-        self.q = MLP(self.width, channels, self.width * 4) # output channel is 1: u(x, y)
+        self.q = MLP(self.width, channelsout, self.width * 4) # output channel is 1: u(x, y)
         
 ## this is not working....bring back the grid addition in this step if cant fix...done
     def forward(self, x):
@@ -148,15 +148,16 @@ class FNO2d(nn.Module):
         x1 = self.mlp3(x1)
         x2 = self.w3(x)
         x = x1 + x2
-
-        
-        x = self.q(x)
+        #print(x.shape)
+        x = self.q(x) # why does the resulting shape have the same?
+        #print(x.shape)
         x = x.permute(0, 2, 3, 1)
         #x = x[:, :-self.padding, :, :] # pad the domain if input is non-periodic
         return x
 
     def get_grid(self, shape, device):
         # normalized from 0 to 1?
+        ## this is a pretty strange way to implement for grid free prediction
         batchsize, size_x, size_y = shape[0], shape[1], shape[2]
         gridx = torch.tensor(np.linspace(0, 1, size_x), dtype=torch.float)
         gridx = gridx.reshape(1, size_x, 1, 1).repeat([batchsize, 1, size_y, 1])
@@ -289,40 +290,41 @@ def estimate_anticyclone (output,target,mask):
 
     # return loss
 
-## removed spectrum loss
-def spectral_loss_single(output, 
-                         target, 
-                         wavenum_init_lon, 
-                         wavenum_init_lat, 
-                         lambda_fft,
-                         grid_valid_size,
-                         channels = 3):
+def spectral_loss_channels(output, 
+                           target, 
+                           wavenum_init_lon, 
+                           wavenum_init_lat, 
+                           lambda_fft,
+                           grid_valid_size,
+                           channels = 3):
 
     # loss1 = torch.sum((output-target)**2)/ocean_grid + torch.sum((output2-target2)**2)/ocean_grid
     
     ## loss from grid space
-    loss_grid = torch.sum((output-target)**2)/(grid_valid_size*channels)
+#    loss_grid = torch.sum((output-target)**2)/(grid_valid_size*channels)
+    loss_grid = torch.mean((output-target)**2)
     # loss1 = torch.abs((output-tnparget))/ocean_grid
 
-    run_loss_run = torch.empty(1)
+    run_loss_run = torch.zeros(1).float().cuda()
     
     for c in range(channels):
         ## losses from fft, both lat (index 1) and lon (index 2) directions
         ## lat
-        out_fft_lat = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=1)),dim=2)
-        target_fft_lat = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=1)),dim=2)
+        #out_fft_lat = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=1)),dim=2)
+        #target_fft_lat = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=1)),dim=2)
         ## lon
         out_fft_lon = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=2)),dim=1)
         target_fft_lon = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2)),dim=1)
         
-        loss_fft_lat = torch.mean(torch.abs(out_fft_lat[:,wavenum_init_lon:]-target_fft_lat[:,wavenum_init_lon:]))
+        #loss_fft_lat = torch.mean(torch.abs(out_fft_lat[:,wavenum_init_lon:]-target_fft_lat[:,wavenum_init_lon:]))
         loss_fft_lon = torch.mean(torch.abs(out_fft_lon[:,wavenum_init_lat:]-target_fft_lon[:,wavenum_init_lat:]))
 
-        run_loss_run = torch.sum(loss_fft_lat+loss_fft_lon)
+        run_loss_run += loss_fft_lon
         
-    loss_fft = lambda_fft*.5*torch.mean(run_loss_run)
-    loss_grid = ((1-lambda_fft))*loss_grid
-    loss = loss_grid + loss_fft
+    loss_fft = run_loss_run/(channels)
+    loss_fft_weighted = lambda_fft*loss_fft
+    loss_grid_weighted = ((1-lambda_fft))*loss_grid
+    loss = loss_grid_weighted + loss_fft_weighted
     
     return loss, loss_grid, loss_fft
 

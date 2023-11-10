@@ -2,8 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 import matplotlib.animation as animation
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import time
 from scipy import fft
+import os
 
 def plot_2d_quantity(data, 
                      day = 10, 
@@ -11,7 +13,7 @@ def plot_2d_quantity(data,
                      loc = None):
     plt.imshow(data)
     plt.colorbar()
-    plt.show()
+    #plt.show()
     
     if loc is not None:
         plt.savefig(loc)
@@ -49,7 +51,124 @@ def animate_2d_quantity(data,
     timenow = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
     ani.save(filename=f"./outputs/test_{timenow}.mp4", writer="ffmpeg")
     
-def plot_singleSpectrum(data,
+def animate_2d_grid_spectrum(data,
+                             channels = ["psi1","psi2","moist"],
+                             start = None, 
+                             stop = None, 
+                             step = 1,
+                             savename = None,
+                             output_dir = "./outputs",
+                             kex = 1,
+                             begframe = 10000,
+                             interval = 200):
+    
+
+    if savename is None:
+        timenow = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
+        loc = f"{output_dir}/gridSpectrum_{timenow}.mp4"
+    else:
+        loc = f"{output_dir}/{savename}.mp4"
+        
+    assert not os.path.exists(loc)
+    
+    fig, ax = plt.subplots(2, data.shape[3], dpi = 100)
+
+    if start is None:
+        start = 0
+    if stop is None:
+        stop = data.shape[0]
+        
+    stime = ctime = time.time()
+    frame = start
+    artists = []
+    print(f"Writing grid spectrum graphs to {loc}")
+    
+    while frame < stop:
+        if (time.time() - ctime) > 5:
+            print(f"time: {np.around(time.time() - stime,2)},  frame: {frame}")
+            ctime = time.time()
+            
+        container = []  
+        
+        for i in range(data.shape[3]):
+            # set title to channel name
+            text = ax[0,i].set_title(channels[i])
+            # excluding first mode
+            spectrum = np.abs(fft.rfft(data[frame,:,:,i], axis = 1)[:,kex:64])
+            spectrum_mean = np.mean(spectrum, axis = 0)
+            # grid space 
+            gridplot = ax[0,i].imshow(data[frame,:,:,i])
+            container.append(gridplot)
+            
+            divider = make_axes_locatable(ax[0,i])
+            cax = divider.append_axes('right', size='5%', pad=0.05)
+            fig.colorbar(gridplot, cax=cax, orientation='vertical')
+            
+            # spectrum
+            container.append(ax[1,i].plot(spectrum_mean, color = "blue")[0])
+            container.append(text)
+        
+        daytitle = plt.text(0.5,1.15,f"Day: {np.around((frame+begframe)/5, 2)}", ha="center",va="bottom", transform=ax[0,1].transAxes, fontsize="large", color = "black")    
+        
+        container.append(daytitle)   
+        artists.append(container)
+        frame += step
+        
+    print(f"final - time: {np.around(time.time() - stime,2)},  frame: {frame}")
+    
+    ani = animation.ArtistAnimation(fig=fig, artists=artists, interval=interval)
+    ani.save(filename=loc, writer="ffmpeg")
+
+def plot_2d_grid_spectrum(data, 
+                             channels = ["psi1","psi2","moist"],
+                             savename = None,
+                             output_dir = "./outputs",
+                             kex = 1,
+                             frame = 0,
+                             vmin = -2,
+                             vmax = 2,
+                             title = "Channel Grid and Spectrum Plots",
+                             begframe = 10000):
+    
+
+    if savename is None:
+        timenow = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
+        loc = f"{output_dir}/gridSpectrum_frame-{frame}_time-{timenow}.png"
+    else:
+        loc = f"{output_dir}/{savename}.png"
+        
+    assert not os.path.exists(loc)
+    
+    fig, ax = plt.subplots(2, data.shape[3], dpi = 200, figsize = (10,6))
+
+    print(f"Plotting grid spectrum graphs to {loc}")
+
+    for i in range(data.shape[3]):
+        # set title to channel name
+        text = ax[0,i].set_title(channels[i])
+        # excluding first mode
+        # grid space 
+        ax[0,i].get_xaxis().set_visible(False)
+        ax[0,i].get_yaxis().set_visible(False)
+        gridplot = ax[0,i].imshow(data[frame,:,:,i], vmin = vmin, vmax = vmax)
+        
+        divider = make_axes_locatable(ax[0,i])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        fig.colorbar(gridplot, cax=cax, orientation='vertical')
+        
+        # spectrum
+        spectrum = np.abs(fft.rfft(data[frame,:,:,i], axis = 1)[:,kex:64])
+        spectrum_mean = np.mean(spectrum, axis = 0)
+        ax[1,i].plot(spectrum_mean, color = "blue")[0]
+        ax[1,i].grid(alpha = .5)
+        
+    daytitle = plt.text(0.5,1.15,f"{title}\nframe: {frame}, day: {np.around((frame+begframe)/5, 2)}", ha="center",va="bottom", transform=ax[0,1].transAxes, fontsize="small", color = "black")    
+    #plt.tight_layout()
+    plt.plot()
+    plt.savefig(fname=loc)
+    plt.close()
+ 
+def plot_singleSpectrum(data, 
                         label = "default",
                         starttimestep = 0,
                         stoptimestep = None,
