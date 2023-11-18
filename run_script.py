@@ -62,30 +62,27 @@ moist_loc_157 = f"{volumename}/moist_5_daily/157/output.3d.nc"
 moist_loc_158 = f"{volumename}/moist_5_daily/158/output.3d.nc"
 moist_loc_159 = f"{volumename}/moist_5_daily/159/output.3d.nc"
 
+moist_data_locs = {
+                   151 : moist_loc_151, 
+                   153 : moist_loc_153,  
+                   155 : moist_loc_155,  
+                   156 : moist_loc_156,  
+                   157 : moist_loc_157,  
+                   158 : moist_loc_158,  
+                   159 : moist_loc_159,
+                  }
+
 #save_fno_step_loc = f"/media/volume/sdb/lenny_outputs/save_fno_step_10-31-2023_meanNormalizedOnly.data"
 output_dir = f"/media/volume/sdb/moist_5_daily/lenny_outputs"
 data_loc = f"{output_dir}/model_data/save_fno_step_11-08-23_allNorm.pkl"
 
-## available integration steps
-integration_methods = \
-  {
-   "directstep" : directstep,
-   "RK4step" : RK4step,
-   "PECstep" : PECstep, 
-   "Eulerstep" : Eulerstep,
-  }
-
 if not os.path.exists(data_loc):
     print(f"Loading moist dataset, and saving to loc {data_loc}")
     print("loading moist datasets...")
-    moists_full = {151 : nc.Dataset(moist_loc_151),
-                   153 : nc.Dataset(moist_loc_153),
-                   155 : nc.Dataset(moist_loc_155),
-                   156 : nc.Dataset(moist_loc_156),
-                   157 : nc.Dataset(moist_loc_157),
-                   158 : nc.Dataset(moist_loc_158),
-                   159 : nc.Dataset(moist_loc_159),
-                  }
+    moists_full = {}
+    
+    for m in moist_data_locs:
+        moists_full[m] = nc.Dataset(moist_data_locs[m])
 
     channels = {
                 "psi1" : ["mean", "std"],
@@ -154,6 +151,15 @@ else:
 train = [153, 155, 156, 157, 158, 159]
 test = [151]
 
+## available integration steps
+integration_methods = \
+  {
+   "directstep" : directstep,
+   "RK4step" : RK4step,
+   "PECstep" : PECstep, 
+   "Eulerstep" : Eulerstep,
+  }
+  
 ## number of timesteps function is evaluated at as input (output)
 
 ##
@@ -202,7 +208,7 @@ def clear_mem():
     torch.cuda.empty_cache()
 
 ## only works for one timestep
-def concatenate_data(data,
+def concatenate_data_singleStep(data,
                      timestamps,
                      moistnames,
                      timesteps_eval = 1,
@@ -214,24 +220,11 @@ def concatenate_data(data,
                     data[moistnames[0]].shape[3]),
                     dtype=np.float64)
 
-    #np.random.seed(0)
     targets = inputs.copy()
-
-
-    #times_input = np.zeros(((data[151].shape[0]-1)*len(moistnames),2))
-    #times_target = np.zeros(((data[151].shape[0]-1)*len(moistnames),2))
 
     ind = 0
     for t in moistnames:
-        #inputs = np.concatenate([inputs, data[t][:-1,:,:,:].cpu()])
-        #targets = np.concatenate([targets, data[t][1:,:,:,:].cpu()])
-        #ti = timestamps[t][:-1].reshape(-1,1)
-        #tt = timestamps[t][1:].reshape(-1,1)
         train_tile = np.tile(t, [timestamps[t].shape[0]-1,1])
-
-        #times_input[ind:ind+(timestamps[t].shape[0]-1),:] = np.concatenate([train_tile, ti], axis = 1)
-        #times_target[ind:ind+(timestamps[t].shape[0]-1),:] = np.concatenate([train_tile, tt], axis = 1)
-
         inputs = np.concatenate([inputs, data[t][:-1,:,:,:]])
         targets = np.concatenate([targets, data[t][1:,:,:,:]])
         ind += data[t].shape[0] - 1
@@ -253,8 +246,7 @@ def fno_form(datastep):
     # return datastep.permute(1,2,0,3).reshape((1, s[1],s[2],s[0]*s[3]))
     return np.transpose(datastep, (1,2,0,3)).reshape((1, s[1],s[2],s[0]*s[3]))
 
-ts_in = 10
-def prep_in_tar_data(data, ts_in = ts_in, lead = 0, ts_out = 1):
+def prep_in_tar_data(data, ts_in = 10, lead = 0, ts_out = 1):
 
     data_input = None
     for i in range(0, data.shape[0]-(ts_in + lead + ts_out + 1), ts_in+lead):
@@ -278,7 +270,7 @@ def prep_in_tar_data(data, ts_in = ts_in, lead = 0, ts_out = 1):
 
     return data_input, data_target
 
-def concatenate_data_tsteps(data_dict, do_permute = True, **pitd_kwargs):
+def concatenate_data_tsteps(data_dict, do_permute = True, pitd_kwargs = {}):
     datas_input = None
     for m in data_dict.keys():
         print(f"concatenating: {m}")
@@ -301,30 +293,15 @@ def concatenate_data_tsteps(data_dict, do_permute = True, **pitd_kwargs):
     return datas_input, datas_target
 
 ## single timestep prediction
-inputs, targets = concatenate_data(moists_keep_fno, moists_keep_fno_timestamps, train, do_permute = True)
-# inputs = inputs[:,:,:,[0,1]]
-# targets = targets[:,:,:,[0,1]]
+
 
 ## for multiple timesteps function outputs as input, with dictionary form of each moist file
 #inputs, targets = concatenate_data_tsteps({t:moists_keep_fno[t] for t in train})
 
-## nn parameters
-# num_epochs = 20
-# lambda_fft =0.0
-# wavenum_init=20
-# wavenum_init_ydir=20
-# #modes = 128
-# modes1 = 64
-# modes2 = 64
-# width = 20
-# batch_size = 20
-# learning_rate = 0.001
-# step = "directstep"
+## for dry psi channels only
+# inputs = inputs[:,:,:,[0,1]]
+# targets = targets[:,:,:,[0,1]]
 
-#nn_name = f"FNO2D_directstep_batch-{batch_size}_samples-{inputs.shape[0]}_epochs-{num_epochs}_kx-{wavenum_init}"
-#nn_name = f"FNO2D_directstep_samples-{inputs.shape[0]}_epochs-{num_epochs}_kx-{wavenum_init}"
-
-torch.cuda.empty_cache()
 
 ## 10/16/23 notes
 ## plot spectrums over time on the normalized to see if there are inconsistencies...done. none i see
@@ -345,203 +322,250 @@ torch.cuda.empty_cache()
 ## 11/8/23
 ## wasn't using optimizer.zero_grad()....:(
 ## variations:
+
 """
 step methods -- 
    "directstep" : directstep,
    "RK4step" : RK4step,
    "PECstep" : PECstep, 
    "Eulerstep" : Eulerstep,
-   
-
- 
 """
 
-# iterations
-step_methods = ['directstep', 'RK4step', 'PECstep', 'Eulerstep']
-lambda_ffts = [0.0, .2, .4, .8, 1.0]
+data_prep = "singleStep"
+data_mod_loc = f"{output_dir}/model_data/save_fno_step_11-18-23_allNorm_{data_prep}.pkl"
 
-
-model_name = "FNO2D_test1"
-nn_dir = f"{output_dir}/models/{model_name}"
-nn_loc = f"{nn_dir}/model.pt"
-
-model_params = \
-     {
-      "model_name" : model_name,
-      "data_loc" : data_loc,
-      "model_dir" : nn_dir,
-      "model_loc" : nn_loc,
-      "step" : "directstep",
-      "num_epochs" : 50, 
-      "lambda_fft" : 0.0, 
-      "wavenum_init" : 20, 
-      "wavenum_init_ydir" : 20,
-      "modes1" : 64, 
-      "modes2" : 64, 
-      "width" : 20, 
-      "batch_size" : 20, 
-      "learning_rate" : 0.001,
-     }
-     
-if not os.path.exists(nn_dir):
-    os.mkdir(nn_dir)
-    ## changing each time in beefore calls
-
-    model_name = model_params["model_name"]
-    num_epochs = model_params["num_epochs"]
-    lambda_fft = model_params["lambda_fft"]
-    wavenum_init = model_params["wavenum_init"]
-    wavenum_init_ydir = model_params["wavenum_init_ydir"]
-    modes1 = model_params["modes1"]
-    modes2 = model_params["modes2"]
-    width = model_params["width"]
-    batch_size = model_params["batch_size"]
-    learning_rate = model_params["learning_rate"]
-    step = model_params["step"]
+if not os.path.exists(data_mod_loc):
     
-    stepmethod = integration_methods[step]
-    
-    net = FNO2d(modes1, modes2, width, channels = inputs.shape[3], channelsout = targets.shape[3]).to("cuda")
-    print(count_params(net))
-
-    #optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=1e-4)
-    #optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)#, weight_decay=1e-4)
-    optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=1e-4)
-
-    train_losses = np.empty([0,5])
-    epoch_losses = np.empty([0,5])
-    print(f"training samples: {inputs.shape[0]}")
-    for epoch in range(0, num_epochs):  # loop over the dataset multiple times
-
-        # for step in range(0, inputs.shape[0]):
-        for step in range(0, inputs.shape[0], batch_size):
-            ## since number may not be multiple of batch_size
-            maxstep = np.min([step+batch_size, inputs.shape[0]])
-
-            input1 = inputs[np.arange(step,maxstep)]
-            target1 = targets[np.arange(step,maxstep)]
-
-            if step == 0 and epoch == 0:
-                print(f"Training input and target shape: input {input1.shape}, target {target1.shape}")
-
-            ## something is wrong with the net output prediction (only gives 1d channel, instead of 3)
-            ## nbeed to fix PECstep to take just the last part of the input
-            #output1 = PECstep(net, input1)
-            #directoutput1 = net(input1)
-            optimizer.zero_grad()
-            output1 = stepmethod(net, input1)
-
-            ## grid value size to put grid and spectrum on similar footing?
-            loss, loss_grid, loss_fft = spectral_loss_channels(output1,
-                                                               target1,
-                                                               wavenum_init,
-                                                               wavenum_init_ydir,
-                                                               lambda_fft = lambda_fft,
-                                                               grid_valid_size = Nlat*Nlon,
-                                                               channels = output1.shape[3])
-            train_losses = np.concatenate([train_losses,
-                                           np.array([[epoch, step, loss.item(), loss_grid.item(), loss_fft.item()]])],
-                                           axis = 0)
-
-            loss.backward()
-            optimizer.step()
-            if step % 1000 == 0:
-                # print(f"{epoch+1}, {step+1} : loss {loss.item()}, loss_grid {loss_grid}, loss_fft {loss_fft}")
-                print(f"{epoch+1}, {step+1} : loss {loss.item()}\n  loss_grid {loss_grid.item()}\n  loss_fft {loss_fft.item()}")
-                print(f"  model {step} output: std: {output1.std()}, mean: {output1.mean()}")
-                print(f"               target: std: {target1.std()}, mean: {target1.mean()}")
-                #print(f"  midlatlon value comparison [0,64,64,:]:\n  output: {output1[0,64,64,:]}\n  target: {target1[0,64,64,:]}")
-
-        epoch_losses = np.concatenate([epoch_losses,
-                                           np.array([[epoch, step, loss.item(), loss_grid.item(), loss_fft.item()]])],
-                                           axis = 0)
-
-    print('Finished Training')
-    
-    with open(f"{nn_dir}/model_params.yml", 'w') as h:
-        yaml.dump(model_params, h, default_flow_style=False)
+    print(f"Concatenating training data: {data_prep} processed.")
+    if data_prep == "singleStep":
+        inputs, targets = concatenate_data_singleStep(moists_keep_fno, moists_keep_fno_timestamps, train, do_permute = True)
+    elif data_prep == "tsteps":
+        inputs, targets = concatenate_data_tsteps({t:moists_keep_fno[t] for t in train})
         
-    torch.save(net.state_dict(), nn_loc)
-    print('FNO Model and Params Saved')
-
+    # print(f"Saving training data to {data_mod_loc}")
+    # with open(data_mod_loc, "wb") as h:
+        # pickle.dump([inputs, targets], h)
 else:
-    with open(f"{nn_dir}/model_params.yml", 'r') as h:
-        model_params = yaml.load(h, Loader = yaml.Loader)
+    # with open(data_mod_loc, "rb") as h:
+        # inputs, targets = pickle.load(h)
+    pass
+    
+# iterations
+step_methods = ['PECstep', 'directstep', 'RK4step',  'Eulerstep']
+lambda_ffts = [0.0, .5, 1.0]
+
+clear_mem()
+
+for step in step_methods:
+    for lambda_fft in lambda_ffts:
+        # lambda_fft = 1.0
+        # step = "directstep"
+        lambda_fft_str = str(lambda_fft).replace('.','p')
+
+        model_name = f"FNO2D_{step}_lambda-{lambda_fft_str}_1"
+        nn_dir = f"{output_dir}/models/{model_name}"
+        nn_loc = f"{nn_dir}/model.pt"
         
-    
-    data_loc = model_params["data_loc"]
-    nn_dir = model_params["model_dir"]
-    nn_loc = model_params["model_loc"]
-    model_name = model_params["model_name"]
-    num_epochs = model_params["num_epochs"]
-    lambda_fft = model_params["lambda_fft"]
-    wavenum_init = model_params["wavenum_init"]
-    wavenum_init_ydir = model_params["wavenum_init_ydir"]
-    modes1 = model_params["modes1"]
-    modes2 = model_params["modes2"]
-    width = model_params["width"]
-    batch_size = model_params["batch_size"]
-    learning_rate = model_params["learning_rate"]
-    step = model_params["step"]
-    
-    stepmethod = integration_methods[step]
-    
-    net = FNO2d(modes1, modes2, width, channels = inputs.shape[3]).to("cuda")
-    net.load_state_dict(torch.load(nn_loc))
-    net = net.eval()
-    
+        model_params = \
+             {
+              "model_name" : model_name,
+              "data_loc" : data_loc,
+              "data_prep" : data_prep,
+              "data_mod_loc" : data_mod_loc,
+              "model_dir" : nn_dir,
+              "model_loc" : nn_loc,
+              "step" : step,
+              "num_epochs" : 20, 
+              "lambda_fft" : lambda_fft, 
+              "wavenum_init" : 20, 
+              "wavenum_init_ydir" : 20,
+              "modes1" : 64, 
+              "modes2" : 64, 
+              "width" : 20, 
+              "batch_size" : 40, 
+              "learning_rate" : 0.001,
+             }
 
-## plot losses over training
-## for each individual batch
-# clipLosses = np.clip(train_losses[:,2],0,10000)
-# nSamples = np.arange(0, clipLosses.shape[0])
-# epoch = train_losses[:,0]
-# epochdiff = epoch[1:]-epoch[:-1]
-# plt.plot(nSamples, clipLosses)
 
-# for epochDiffLoc in np.where(epochdiff == 1)[0]:
-    # plt.plot(np.tile(epochDiffLoc+1,2), [clipLosses.min(), clipLosses.max()], linestyle = "--", color = "red")
+        if not os.path.exists(nn_dir):
+            ## changing each time in beefore calls
 
-# plt.grid(alpha = .5)
-# plt.show()
+            model_name = model_params["model_name"]
+            num_epochs = model_params["num_epochs"]
+            lambda_fft = model_params["lambda_fft"]
+            wavenum_init = model_params["wavenum_init"]
+            wavenum_init_ydir = model_params["wavenum_init_ydir"]
+            modes1 = model_params["modes1"]
+            modes2 = model_params["modes2"]
+            width = model_params["width"]
+            batch_size = model_params["batch_size"]
+            learning_rate = model_params["learning_rate"]
+            step = model_params["step"]
+            
+            stepmethod = integration_methods[step]
+            
+            net = FNO2d(modes1, modes2, width, channels = inputs.shape[3], channelsout = targets.shape[3]).to("cuda")
+            print(count_params(net))
 
-## for epochs
-# clipLosses = np.clip(epoch_losses[:,2],0,10000)
-clipLosses = epoch_losses[:,2]
-nSamples = np.arange(0, clipLosses.shape[0])
-plt.plot(nSamples, clipLosses)
-plt.grid(alpha = .5)
-plt.yscale("log")
-plt.xlabel("epochs")
-plt.ylabel("loss")
-# plt.title(nn_name)
-plt.savefig(f"{output_dir}/plots/{nn_name}_losses.png")
-plt.close()
+            #optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=1e-4)
+            #optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)#, weight_decay=1e-4)
+            optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=1e-4)
 
-## autoregression
-## 151 autorgression
+            train_losses = np.empty([0,5])
+            epoch_losses = np.empty([0,5])
+            print(f"training samples: {inputs.shape[0]}")
+            for epoch in range(0, num_epochs):  # loop over the dataset multiple times
 
-autoregsteps=1000
-previnput = moists_keep_fno[151][[0]]
-autoreg_pred = previnput ## unseen data
-#previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
+                # for step in range(0, inputs.shape[0]):
+                for step in range(0, inputs.shape[0], batch_size):
+                    ## since number may not be multiple of batch_size
+                    maxstep = np.min([step+batch_size, inputs.shape[0]])
 
-for step in range(autoregsteps):
-    # grid = net.get_grid(previnput.shape, previnput.device)
-    # previnput = torch.cat((previnput, grid), dim=-1)
-    output = stepmethod(net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
-    autoreg_pred = np.concatenate([autoreg_pred, output], axis = 0)
-    previnput = output
+                    input1 = inputs[np.arange(step,maxstep)]
+                    target1 = targets[np.arange(step,maxstep)]
 
-pred_plots = f"{nn_dir}/pred_plots"
-if not os.path.exists(pred_plots):
-    os.mkdir(pred_plots)
-    
-for step in np.arange(0, autoreg_pred.shape[0], 4*14):
-    print(step)
-    plotting.plot_2d_grid_spectrum(autoreg_pred,
-                                   frame=step,
-                                   savename = f"{model_name}_step-{step}.png",
-                                   output_dir = pred_plots,
-                                   begframe = 10000)
+                    if step == 0 and epoch == 0:
+                        print(f"Training input and target shape: input {input1.shape}, target {target1.shape}")
+
+                    optimizer.zero_grad()
+                    output1 = stepmethod(net, input1)
+
+                    ## grid value size to put grid and spectrum on similar footing?
+                    loss, loss_grid, loss_fft = spectral_loss_channels(output1,
+                                                                       target1,
+                                                                       wavenum_init,
+                                                                       wavenum_init_ydir,
+                                                                       lambda_fft = lambda_fft,
+                                                                       grid_valid_size = targets.shape[1]*targets.shape[2],
+                                                                       channels = targets.shape[3])
+                    train_losses = np.concatenate([train_losses,
+                                                   np.array([[epoch, step, loss.item(), loss_grid.item(), loss_fft.item()]])],
+                                                   axis = 0)
+
+                    loss.backward()
+                    optimizer.step()
+                    if step % 1000 == 0:
+                        # print(f"{epoch+1}, {step+1} : loss {loss.item()}, loss_grid {loss_grid}, loss_fft {loss_fft}")
+                        print(f"{epoch+1}, {step+1} : loss {loss.item()}\n  loss_grid {loss_grid.item()}\n  loss_fft {loss_fft.item()}")
+                        print(f"    output: std: {output1.std()}, mean: {output1.mean()}")
+                        print(f"    target: std: {target1.std()}, mean: {target1.mean()}")
+                        #print(f"  midlatlon value comparison [0,64,64,:]:\n  output: {output1[0,64,64,:]}\n  target: {target1[0,64,64,:]}")
+
+                epoch_losses = np.concatenate([epoch_losses,
+                                                   np.array([[epoch, step, loss.item(), loss_grid.item(), loss_fft.item()]])],
+                                                   axis = 0)
+
+            print('Finished Training')
+            
+            os.mkdir(nn_dir)
+            
+            with open(f"{nn_dir}/model_params.yml", 'w') as h:
+                yaml.dump(model_params, h, default_flow_style=False)
+            
+            with open(f"{nn_dir}/epoch_losses.pkl", 'wb') as h:
+                pickle.dump(epoch_losses, h)
+            
+            torch.save(net.state_dict(), nn_loc)
+            print('FNO Model and Params Saved')
+
+        else:
+            with open(f"{nn_dir}/model_params.yml", 'r') as h:
+                model_params = yaml.load(h, Loader = yaml.Loader)
+                
+            with open(f"{nn_dir}/epoch_losses.pkl", 'rb') as h:
+                epoch_losses = pickle.load(h)
+            
+            data_loc = model_params["data_loc"]
+            data_prep = model_params["data_prep"]
+            data_mod_loc = model_params["data_mod_loc"]
+            nn_dir = model_params["model_dir"]
+            nn_loc = model_params["model_loc"]
+            model_name = model_params["model_name"]
+            num_epochs = model_params["num_epochs"]
+            lambda_fft = model_params["lambda_fft"]
+            wavenum_init = model_params["wavenum_init"]
+            wavenum_init_ydir = model_params["wavenum_init_ydir"]
+            modes1 = model_params["modes1"]
+            modes2 = model_params["modes2"]
+            width = model_params["width"]
+            batch_size = model_params["batch_size"]
+            learning_rate = model_params["learning_rate"]
+            step = model_params["step"]
+            
+            stepmethod = integration_methods[step]
+            
+            net = FNO2d(modes1, modes2, width, channels = inputs.shape[3]).to("cuda")
+            net.load_state_dict(torch.load(nn_loc))
+            net = net.eval()
+            
+
+        ## plot losses over training
+        ## for each individual batch
+        # clipLosses = np.clip(train_losses[:,2],0,10000)
+        # nSamples = np.arange(0, clipLosses.shape[0])
+        # epoch = train_losses[:,0]
+        # epochdiff = epoch[1:]-epoch[:-1]
+        # plt.plot(nSamples, clipLosses)
+
+        # for epochDiffLoc in np.where(epochdiff == 1)[0]:
+            # plt.plot(np.tile(epochDiffLoc+1,2), [clipLosses.min(), clipLosses.max()], linestyle = "--", color = "red")
+
+        # plt.grid(alpha = .5)
+        # plt.show()
+
+        ## for epochs
+        # clipLosses = np.clip(epoch_losses[:,2],0,10000)
+        clipLosses = epoch_losses[:,2]
+        nSamples = np.arange(0, clipLosses.shape[0])
+        plt.plot(nSamples, clipLosses)
+        plt.grid(alpha = .5)
+        #plt.yscale("log")
+        plt.xlabel("epochs")
+        plt.ylabel("loss")
+        # plt.title(nn_name)
+        plt.savefig(f"{nn_dir}/{model_name}_losses.png")
+        plt.close()
+
+        ## autoregression
+        ## 151 autorgression
+
+        autoregsteps=1000
+        actual = moists_keep_fno[test[0]][:autoregsteps+1]
+        previnput = actual[[0]]
+        autoreg_pred = previnput ## unseen data
+        #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
+
+        for step in range(autoregsteps):
+            # grid = net.get_grid(previnput.shape, previnput.device)
+            # previnput = torch.cat((previnput, grid), dim=-1)
+            output = stepmethod(net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
+            autoreg_pred = np.concatenate([autoreg_pred, output], axis = 0)
+            previnput = output
+
+        pred_plots = f"{nn_dir}/pred_plots"
+        if not os.path.exists(pred_plots):
+            os.mkdir(pred_plots)
+
+        tsteps_pred = 100*4
+
+        # tsteps_pred = autoreg_pred.shape[0]
+        for step in np.arange(0, tsteps_pred, 4*20):
+            print(step)
+            
+            plotting.plot_2d_grid_spectrum(autoreg_pred,
+                                           channels = ["psi1","psi2","moist"],
+                                           frame=step,
+                                           savename = f"{model_name}_step-{step}.png",
+                                           output_dir = pred_plots,
+                                           title = f"{model_name} autoregressive predictions; moist {test[0]} init",
+                                           begframe = 10000)
+                                           
+            plotting.plot_2d_grid_spectrum(actual,
+                                           channels = ["psi1","psi2","moist"],
+                                           frame=step,
+                                           savename = f"actual_step-{step}.png",
+                                           output_dir = pred_plots,
+                                           title = f"Actual predictions moist {test[0]}",
+                                           begframe = 10000)
+
 

@@ -301,7 +301,7 @@ def spectral_loss_channels(output,
     # loss1 = torch.sum((output-target)**2)/ocean_grid + torch.sum((output2-target2)**2)/ocean_grid
     
     ## loss from grid space
-#    loss_grid = torch.sum((output-target)**2)/(grid_valid_size*channels)
+    # loss_grid = torch.sum((output-target)**2)/(grid_valid_size*channels)
     loss_grid = torch.mean((output-target)**2)
     # loss1 = torch.abs((output-tnparget))/ocean_grid
 
@@ -309,15 +309,20 @@ def spectral_loss_channels(output,
     
     for c in range(channels):
         ## losses from fft, both lat (index 1) and lon (index 2) directions
+        ## ignore lat for now
         ## lat
         #out_fft_lat = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=1)),dim=2)
         #target_fft_lat = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=1)),dim=2)
+        #loss_fft_lat = torch.mean(torch.abs(out_fft_lat[:,wavenum_init_lat:]-target_fft_lat[:,wavenum_init_lat:]))
         ## lon
-        out_fft_lon = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=2)),dim=1)
-        target_fft_lon = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2)),dim=1)
+        # out_fft_lon = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=2)),dim=1)
+        # target_fft_lon = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2)),dim=1)
+        # loss_fft_lon = torch.mean(torch.abs(out_fft_lon[:,wavenum_init_lon:]-target_fft_lon[:,wavenum_init_lon:]))
         
-        #loss_fft_lat = torch.mean(torch.abs(out_fft_lat[:,wavenum_init_lon:]-target_fft_lat[:,wavenum_init_lon:]))
-        loss_fft_lon = torch.mean(torch.abs(out_fft_lon[:,wavenum_init_lat:]-target_fft_lon[:,wavenum_init_lat:]))
+        ## it makes sense for me to take fft differences before...if you take mean, you lose important behavior at the equator?
+        out_fft_lon = torch.abs(torch.fft.rfft(output[:,:,:,c],dim=2))
+        target_fft_lon = torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2))
+        loss_fft_lon = torch.mean((out_fft_lon - target_fft_lon)**2)
 
         run_loss_run += loss_fft_lon
         
