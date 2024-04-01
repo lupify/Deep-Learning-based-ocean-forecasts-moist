@@ -4,7 +4,7 @@ import datetime
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import time
-from scipy import fft
+from scipy import fft  
 import os
 import multiprocessing as mp
 from multiprocessing import Pool
@@ -133,9 +133,10 @@ def plot_2d_grid_spectrum(data,
                              vmin = -2,
                              vmax = 2,
                              title = "Channel Grid and Spectrum Plots",
-                             begframe = 10000):
+                             cmap = cm.viridis,
+                             begframe = 10000,
+                             showfig = False):
     
-
     if savename is None:
         timenow = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
         loc = f"{output_dir}/gridSpectrum_frame-{frame}_time-{timenow}.png"
@@ -145,7 +146,9 @@ def plot_2d_grid_spectrum(data,
     fig, ax = plt.subplots(2, data.shape[3], dpi = 200, figsize = (10,6))
 
     #print(f"Plotting grid spectrum graphs to {loc}")
-
+    
+    # axes limits on spectrum plots
+    lims = [2.5, 20, 2]
     for i in range(data.shape[3]):
         # set title to channel name
         # dmin, dmax = data[frame,:,:,i].min(), data[frame,:,:,i].max()
@@ -155,7 +158,7 @@ def plot_2d_grid_spectrum(data,
         # grid space 
         ax[0,i].get_xaxis().set_visible(False)
         ax[0,i].get_yaxis().set_visible(False)
-        gridplot = ax[0,i].imshow(data[frame,:,:,i], vmin = vmin, vmax = vmax)
+        gridplot = ax[0,i].imshow(data[frame,:,:,i], vmin = vmin, vmax = vmax, cmap = cmap)
         
         divider = make_axes_locatable(ax[0,i])
         cax = divider.append_axes('right', size='5%', pad=0.05)
@@ -166,17 +169,25 @@ def plot_2d_grid_spectrum(data,
         spectrum_mean = np.mean(spectrum, axis = 0)
         ax[1,i].plot(spectrum_mean, color = "blue")[0]
         ax[1,i].grid(alpha = .5)
+        ax[1,i].set_ylim(0, lims[i])
     
-    daytitle = plt.text(0.5,1.15,f"{title}\nframe: {frame}, day: {np.around((frame+begframe)/4, 2)}", ha="center",va="bottom", transform=ax[0,int(data.shape[3]/2)].transAxes, fontsize="small", color = "black")    
+    ax[0,0].set_xlabel("lon")
+    ax[0,0].set_ylabel("lat")
+    ax[1,0].set_xlabel(r"wavenumber, $k$")
+    ax[1,0].set_ylabel(r"Amplitude")
+    
+    daytitle = plt.text(0.5,1.15,f"{title}\nframe: {frame}\nday: {frame/4.:.2f}", ha="center",va="bottom", transform=ax[0,int(data.shape[3]/2)].transAxes, fontsize="small", color = "black")    
     #plt.tight_layout()
-    plt.plot()
-    plt.savefig(fname=loc)
+    if showfig:
+        plt.plot()
+    else:
+        plt.savefig(fname=loc)
     plt.close()
 
-def plot_squared_error(data1, 
-                        data2, 
-                        channels = ["psi1","psi2","moist"],
-                        loc = "./plot_squared_error.png"):
+def plot_rmse(data1, 
+                       data2, 
+                       channels = ["psi1","psi2","moist"],
+                       loc = "./plot_rmse.png"):
     assert data1.shape == data2.shape
     fig, ax = plt.subplots(1, data1.shape[3], dpi = 200, figsize = (11,4))
     
@@ -184,22 +195,23 @@ def plot_squared_error(data1,
         sqerrors = []
         tsteps = np.arange(data1.shape[0])
         for tstep in tsteps:
-            sqerrors.append(np.mean((data1[tstep,:,:,ich]-data2[tstep,:,:,ich])**2))
-        ax[ich].plot(tsteps, sqerrors)
-        ax[ich].set_title(f"{ch} MSE")
-        ax[ich].set_xlabel(f"time steps")
+            sqerrors.append(np.sqrt(np.mean((data1[tstep,:,:,ich]-data2[tstep,:,:,ich])**2)))
+            
+        ax[ich].plot(tsteps/4., sqerrors)
+        ax[ich].set_title(f"{ch} RMSE")
+        ax[ich].set_xlabel(f"days")
         if ich == 0:
-            ax[ich].set_ylabel(f"MSE")
+            ax[ich].set_ylabel(f"RMSE")
         ax[ich].grid(alpha = .8)
     
     plt.plot()
-    plt.savefig(fname=loc)
+    plt.savefig(fname=loc, bbox_inches='tight')
     plt.close()
 
 def plot_acc(data1, 
-                        data2, 
-                        channels = ["psi1","psi2","moist"],
-                        loc = "./plot_acc.png"):
+             data2, 
+             channels = ["psi1","psi2","moist"],
+             loc = "./plot_acc.png"):
     assert data1.shape == data2.shape
     fig, ax = plt.subplots(1, data1.shape[3], dpi = 200, figsize = (11,4))
     
@@ -207,6 +219,7 @@ def plot_acc(data1,
         accs = []
         tsteps = np.arange(data1.shape[0])
         #d1c = data1[:,:,:,ich].mean(axis = 0)
+        ## time mean computed
         d2c = data2[:,:,:,ich].mean(axis = 0)
         
         for tstep in tsteps:
@@ -216,15 +229,15 @@ def plot_acc(data1,
             den = np.sqrt(np.sum((d1t - d2c)**2))*np.sqrt(np.sum((d2t - d2c)**2))
             accs.append(num/den)
             
-        ax[ich].plot(tsteps, accs)
+        ax[ich].plot(tsteps/4., accs)
         ax[ich].set_title(f"{ch} ACC")
-        ax[ich].set_xlabel(f"time steps")
+        ax[ich].set_xlabel(f"days")
         if ich == 0:
             ax[ich].set_ylabel(f"ACC")
         ax[ich].grid(alpha = .8)
     
     plt.plot()
-    plt.savefig(fname=loc)
+    plt.savefig(fname=loc, bbox_inches='tight')
     plt.close()
 
 def plot_spectrums(data1, 
@@ -234,7 +247,8 @@ def plot_spectrums(data1,
                     tsteps = [0,5,20,100,500],
                     kex = 1,
                     cmap = cm.rainbow,
-                    loc = "./plot_acc.png"):
+                    loc = "./plot_spec1.png"):
+                    
     assert data1.shape == data2.shape
     fig, ax = plt.subplots(2, data1.shape[3], dpi = 200, figsize = (12,8))
     ks = np.arange(kex,64)
@@ -244,33 +258,74 @@ def plot_spectrums(data1,
             for itstep, tstep in enumerate(tsteps,0):
                 spectrum = np.abs(fft.rfft(data[tstep,:,:,ich], axis = 1)[:,ks])
                 spectrum_mean = np.mean(spectrum, axis = 0)
-                ax[idata,ich].plot(ks, spectrum_mean, color = cmap(itstep/(len(tsteps)-1)), label = f"tstep = {tstep}")
+                ax[idata,ich].plot(ks, spectrum_mean, color = cmap(itstep/(len(tsteps)-1)), label = f"day = {np.around(tstep/4.,2)}")
                 ax[idata,ich].grid(alpha = .8)
+                ax[idata,ich].set_yscale("log")
     
     ax[0,0].legend()
     for ich, ch in enumerate(channels,0):
         ax[0, ich].set_title(ch)
         ax[1, ich].set_xlabel(r"Wavenumber, $k$")
     for idata, data in enumerate(data_names,0):
-        ax[idata, 0].set_ylabel(r"$E$")
+        ax[idata, 0].set_ylabel(r"Amplitude")
     
     #ax[0, 1].set_title(data_names[0])
     #ax[1, 1].set_title(data_names[1])
     
     plt.plot()
-    plt.savefig(fname=loc)
-    plt.close() 
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
 
-def plot_singleSpectrum(data, 
+def plot_spectrums2(data1, 
+                        data2, 
+                        channels = ["psi1","psi2","moist"],
+                        data_names = ["autoreg_pred", "actual"],
+                        tsteps = [0,5,20,100,500],
+                        kex = 1,
+                        cmap = cm.rainbow,
+                        loc = "./plot_spec2.png"):
+    assert data1.shape == data2.shape
+    fig, ax = plt.subplots(1, data1.shape[3], dpi = 200, figsize = (12,4))
+    ks = np.arange(kex,64)
+    
+    for ich, ch in enumerate(channels,0):
+        for itstep, tstep in enumerate(tsteps,0):
+            spectrum = np.abs(fft.rfft(data1[tstep,:,:,ich], axis = 1)[:,ks])
+            spectrum_mean = np.mean(spectrum, axis = 0)
+            ax[ich].plot(ks, spectrum_mean, color = cmap(itstep/(len(tsteps)-1)), label = f"day = {np.around(tstep/4.,2)}")
+            ax[ich].grid(alpha = .8)
+            ax[ich].set_yscale("log")
+    
+        spectrum = np.mean(np.abs(fft.rfft(data2[:,:,:,ich], axis = 2)[:,:,ks]), axis = 0)
+        spectrum_mean = np.mean(spectrum, axis = 0)
+        ax[ich].plot(ks, spectrum_mean, color = "black", linestyle = "--", label = f"actual (mean)", zorder = 20)
+
+    
+    ax[0].legend()
+    for ich, ch in enumerate(channels,0):
+        ax[ich].set_title(ch)
+        
+    ax[0].set_xlabel(r"Wavenumber, $k$")
+    ax[0].set_ylabel(r"Amplitude")
+    
+    #ax[0, 1].set_title(data_names[0])
+    #ax[1, 1].set_title(data_names[1])
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+
+
+def plot_singleSpectrum(data,
                         label = "default",
                         starttimestep = 0,
                         stoptimestep = None,
                         latrange = [None, None],
                         xlabel = r"$k_x$",
                         ylabel = ""):
-    """
+    """  
     Date inputted is raw data grid feature data, across lattitude (horizontally)
-    """
+    """ 
     
     # a = np.abs(np.real(fft.fft(moists_keep[moist][2,10000:,64-10:64+10,:], axis = 2)[:,:,1:64]))
     a = np.abs(fft.rfft(data[starttimestep:stoptimestep,latrange[0] : latrange[1], :], axis = 2)[:,:,1:64])
@@ -290,4 +345,133 @@ def plot_loss(losses, ylim = 5):
     plt.grid()
     plt.ylim(0, ylim)
     plt.savefig("./outputs/test.png")
+    plt.close()
+    
+
+def plot_compare_accs(actual, 
+                      preds,
+                      labels_properties,
+                      channels = ["psi1","psi2","moist"],
+                      loc = "./plot_acc.png"):
+                      
+    fig, ax = plt.subplots(1, actual.shape[3], dpi = 200, figsize = (11,4))
+    
+    
+    for ich, ch in enumerate(channels,0):
+        for ipr, pred in enumerate(preds, 0):
+            accs = []
+            tsteps = np.arange(actual.shape[0])
+            #d1c = data1[:,:,:,ich].mean(axis = 0)
+            ## time mean computed
+            d2c = actual[:,:,:,ich].mean(axis = 0)
+            
+            for tstep in tsteps:
+                d1t = pred[tstep,:,:,ich]
+                d2t = actual[tstep,:,:,ich]
+                num = np.sum((d1t - d2c)*(d2t - d2c))
+                den = np.sqrt(np.sum((d1t - d2c)**2))*np.sqrt(np.sum((d2t - d2c)**2))
+                accs.append(num/den)
+                
+            ax[ich].plot(tsteps/4., 
+                         accs, 
+                         label = labels_properties[ipr]["label"], 
+                         color = labels_properties[ipr]["color"], 
+                         linestyle = labels_properties[ipr]["linestyle"])
+                         
+            ax[ich].set_title(f"{ch} ACC")
+            ax[ich].set_xlabel(f"days")
+            
+            if ich == 0:
+                ax[ich].set_ylabel(f"ACC")
+            ax[ich].grid(alpha = .8)
+            
+        if ich == (len(channels)-1):
+            ax[ich].legend(bbox_to_anchor=(1.1, 1.05))
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+    
+
+def plot_compare_rmse(actual,
+                      preds, 
+                      labels_properties,
+                      channels = ["psi1","psi2","moist"],
+                      loc = "./plot_rmse.png"):
+                      
+    fig, ax = plt.subplots(1, actual.shape[3], dpi = 200, figsize = (11,4))
+    
+    
+    for ich, ch in enumerate(channels,0):
+        for ipr, pred in enumerate(preds, 0):
+            sqerrors = []
+            tsteps = np.arange(actual.shape[0])
+            #d1c = data1[:,:,:,ich].mean(axis = 0)
+            ## time mean computed
+            d2c = pred[:,:,:,ich].mean(axis = 0)
+            
+            for tstep in tsteps:
+                d1t = pred[tstep,:,:,ich]
+                d2t = actual[tstep,:,:,ich]
+                sqerrors.append(np.sqrt(np.mean((d1t-d2t)**2)))
+                
+            ax[ich].plot(tsteps/4., 
+                         sqerrors, 
+                         label = labels_properties[ipr]["label"], 
+                         color = labels_properties[ipr]["color"], 
+                         linestyle = labels_properties[ipr]["linestyle"])
+                         
+            ax[ich].set_title(f"{ch} RMSE")
+            ax[ich].set_xlabel(f"days")
+            
+            if ich == 0:
+                ax[ich].set_ylabel(f"RMSE")
+            ax[ich].grid(alpha = .8)
+            
+        if ich == (len(channels)-1):
+            ax[ich].legend(bbox_to_anchor=(1.1, 1.05))
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+    
+def plot_compare_spectrums2(actual,  
+                            preds,
+                            labels_properties,
+                            channels = ["psi1","psi2","moist"],
+                            tsteps = [28],
+                            kex = 1,
+                            cmap = cm.rainbow,
+                            loc = "./plot_spec2.png"):
+                            
+    fig, ax = plt.subplots(1, actual.shape[3], dpi = 200, figsize = (12,4))
+    ks = np.arange(kex,64)
+    
+    for ich, ch in enumerate(channels,0):
+        for ipr, pred in enumerate(preds, 0):
+            for itstep, tstep in enumerate(tsteps,0):
+                spectrum = np.abs(fft.rfft(pred[tstep,:,:,ich], axis = 1)[:,ks])
+                spectrum_mean = np.mean(spectrum, axis = 0)
+                ax[ich].plot(ks, 
+                             spectrum_mean, 
+                             color = labels_properties[ipr]['color'], 
+                             label = f"{labels_properties[ipr]['label']}, day = {np.around(tstep/4.,2)}",
+                             linestyle = labels_properties[ipr]['linestyle'])
+                ax[ich].grid(alpha = .8)
+                ax[ich].set_yscale("log")
+        
+        spectrum = np.mean(np.abs(fft.rfft(actual[:,:,:,ich], axis = 2)[:,:,ks]), axis = 0)
+        spectrum_mean = np.mean(spectrum, axis = 0)
+        ax[ich].plot(ks, spectrum_mean, color = "black", linestyle = "--", label = f"actual (mean)", zorder = 20)
+
+    
+    ax[len(channels)-1].legend(bbox_to_anchor=(1.1, 1.05))
+    for ich, ch in enumerate(channels,0):
+        ax[ich].set_title(ch)
+        
+    ax[0].set_xlabel(r"Wavenumber, $k$")
+    ax[0].set_ylabel(r"Amplitude")
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
     plt.close()
