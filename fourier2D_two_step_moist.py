@@ -20,7 +20,6 @@ from count_trainable_params import count_parameters
 import hdf5storage
 
 
-
 torch.manual_seed(0)
 np.random.seed(0)
 
@@ -301,6 +300,7 @@ def spectral_loss_channels_og(output,
                            wavenum_init_lat, 
                            lambda_fft,
                            grid_valid_size,
+                           lat_lon_bal = .5,
                            channels = 3):
 
     # loss1 = torch.sum((output-target)**2)/ocean_grid + torch.sum((output2-target2)**2)/ocean_grid
@@ -314,7 +314,6 @@ def spectral_loss_channels_og(output,
     
     for c in range(channels):
         ## losses from fft, both lat (index 1) and lon (index 2) directions
-        ## ignore lat for now
         ## lat
         out_fft_lat = torch.mean(torch.abs(torch.fft.rfft(output[:,:,:,c],dim=1)),dim=2)
         target_fft_lat = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=1)),dim=2)
@@ -324,10 +323,10 @@ def spectral_loss_channels_og(output,
         target_fft_lon = torch.mean(torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2)),dim=1)
         loss_fft_lon = torch.mean(torch.abs(out_fft_lon[:,wavenum_init_lon:]-target_fft_lon[:,wavenum_init_lon:]))
         
-        run_loss_run += loss_fft_lon + loss_fft_lat
+        run_loss_run += (1-lat_lon_bal)*loss_fft_lon + lat_lon_bal*loss_fft_lat
     
     ## fft_loss_scale included, so the lambda_fft is more intuitive (lambda_fft = .5 --> around half weighted shared between grid and fft loss)
-    loss_fft = run_loss_run/(2*channels*fft_loss_scale)
+    loss_fft = run_loss_run/(channels*fft_loss_scale)
     loss_fft_weighted = lambda_fft*loss_fft
     loss_grid_weighted = ((1-lambda_fft))*loss_grid
     loss = loss_grid_weighted + loss_fft_weighted
@@ -335,14 +334,18 @@ def spectral_loss_channels_og(output,
     return loss, loss_grid, loss_fft
 
 def spectral_loss_channels_sqr(output, 
-                           target, 
-                           wavenum_init_lon, 
-                           wavenum_init_lat, 
-                           lambda_fft,
-                           grid_valid_size,
-                           channels = 3,
-                           fft_loss_scale = 1./110.):
-
+                               target, 
+                               wavenum_init_lon, 
+                               wavenum_init_lat, 
+                               lambda_fft,
+                               grid_valid_size,
+                               lat_lon_bal = .5,
+                               channels = 3,
+                               fft_loss_scale = 1./110.):
+        
+    """
+    Grid and spectral losses, both with mse
+    """
     # loss1 = torch.sum((output-target)**2)/ocean_grid + torch.sum((output2-target2)**2)/ocean_grid
     
     ## loss from grid space
@@ -354,306 +357,77 @@ def spectral_loss_channels_sqr(output,
     
     for c in range(channels):
         ## it makes sense for me to take fft differences before...if you take mean, you lose more important differences at the equator?
+        ## losses from fft, both lat (index 1) and lon (index 2) directions
+        ## lat
         out_fft_lat = torch.abs(torch.fft.rfft(output[:,:,:,c],dim=1))[:,wavenum_init_lon:,:]
         target_fft_lat = torch.abs(torch.fft.rfft(target[:,:,:,c],dim=1))[:,wavenum_init_lon:,:]
         loss_fft_lat = torch.mean((out_fft_lat - target_fft_lat)**2)
-        
+        ## lon
         out_fft_lon = torch.abs(torch.fft.rfft(output[:,:,:,c],dim=2))[:,:,wavenum_init_lon:]
         target_fft_lon = torch.abs(torch.fft.rfft(target[:,:,:,c],dim=2))[:,:,wavenum_init_lon:]
         loss_fft_lon = torch.mean((out_fft_lon - target_fft_lon)**2)
 
-        run_loss_run += loss_fft_lon + loss_fft_lat
+        run_loss_run += (1-lat_lon_bal)*loss_fft_lon + lat_lon_bal*loss_fft_lat
     
     ## fft_loss_scale included, so the lambda_fft is more intuitive (lambda_fft = .5 --> around half weighted shared between grid and fft loss)
-    loss_fft = run_loss_run/(2*channels)*fft_loss_scale
+    loss_fft = run_loss_run/(channels)*fft_loss_scale
     loss_fft_weighted = lambda_fft*loss_fft
     loss_grid_weighted = ((1-lambda_fft))*loss_grid
     loss = loss_grid_weighted + loss_fft_weighted
     
     return loss, loss_grid, loss_fft
 
-# def RK4step(net,input_batch):
-    # output_1 = net(input_batch.cuda())
-    # output_2= net(input_batch.cuda()+0.5*output_1)
-    # output_3 = net(input_batch.cuda()+0.5*output_2)
-    # output_4 = net(input_batch.cuda()+output_3)
-
-    # return input_batch.cuda() + (output_1+2*output_2+2*output_3+output_4)/6
+def huber_loss(output,
+               target,
+               delta = .2):
     
-# delta_t = 1.0
-
-# def Eulerstep(net,input_batch):
-    # output_1 = net(input_batch.cuda())
-    # return input_batch.cuda() + delta_t*(output_1)
-
-
-# def PECstep(net,input_batch):
-    # output_net = net(input_batch.cuda())
-    # #assert output_net.shape == input_batch.shape 
-    # output_1 = output_net + input_batch.cuda()
-    # #print(net(input_batch.cuda()).shape, input_batch.cuda().shape)
-    # return input_batch.cuda() + delta_t*0.5*(net(input_batch.cuda())+net(output_1))
-
-# def directstep(net,input_batch):
-    # output_1 = net(input_batch.cuda())
-    # return output_1
-
+    loss_grid = torch.mean(torch.abs(output-target))
+    
+    if loss_grid > delta:
+        loss = .5*loss_grid**2
+    else:
+        loss = delta*(loss_grid - .5*delta)
+    
+    return loss
+               
 ## these only work for single steps...
+## think about inclusion of hyper viscocity in output predictions???
 
-def RK4step(net,input_batch):
+def RK4step(net, input_batch):
     output_1 = net(input_batch.cuda())
-    output_2= net(input_batch.cuda()+0.5*output_1)
+    output_2 = net(input_batch.cuda()+0.5*output_1)
     output_3 = net(input_batch.cuda()+0.5*output_2)
     output_4 = net(input_batch.cuda()+output_3)
 
     return input_batch.cuda() + (output_1+2*output_2+2*output_3+output_4)/6
-    
-delta_t = 1.0
-
-def Eulerstep(net,input_batch):
+ 
+def Eulerstep(net, input_batch, delta_t = 1.0):
     output_1 = net(input_batch.cuda())
     return input_batch.cuda() + delta_t*(output_1)
-
-
-def PECstep(net,input_batch):
+ 
+def PECstep(net, input_batch, delta_t = 1.0):
     output_net = net(input_batch.cuda())
     #assert output_net.shape == input_batch.shape 
-    output_1 = output_net + input_batch.cuda()
+    output_1 = delta_t*output_net + input_batch.cuda() ## delta_t variances, to force jacobian of output to have smaller eigenvalues -> store matrix for single timestep, the can do eigenvalue decomp on bigger cluster.
+    ## torch will return tensor rank 6 -> reshape to rank 2 (128x128x3)x(128x128x3)
     #print(net(input_batch.cuda()).shape, input_batch.cuda().shape)
     return input_batch.cuda() + delta_t*0.5*(net(input_batch.cuda())+net(output_1))
 
-def directstep(net,input_batch):
+def directstep(net, input_batch):
     output_1 = net(input_batch.cuda())
     return output_1        
 
-
-def main():
-    ################################################################
-    # configs
-    ################################################################
-    path_outputs = '/home/exouser/ocean_reanalysis_daily_other_baselines/outputs/'
-
-    # FF=nc.Dataset('/home/exouser/mount/ocean_reanalysis_daily/EnKF_surface_2020_5dmean_gom.nc')
-    volumename = '/home/exouser/moist'
-
-    moist_loc_151 = f"{volumename}/moist_5_daily/151/output.3d.nc"
-    moist_loc_153 = f"{volumename}/moist_5_daily/153/output.3d.nc"
-    moist_loc_155 = f"{volumename}/moist_5_daily/155/output.3d.nc"
-    moist_loc_156 = f"{volumename}/moist_5_daily/156/output.3d.nc"
-    moist_loc_157 = f"{volumename}/moist_5_daily/157/output.3d.nc"
-    moist_loc_158 = f"{volumename}/moist_5_daily/158/output.3d.nc"
-    moist_loc_159 = f"{volumename}/moist_5_daily/159/output.3d.nc"
-
-    print("loading moist datasets...")
-    moists_full = {"151" : nc.Dataset(moist_loc_151),
-                   "153" : nc.Dataset(moist_loc_153),
-                   "155" : nc.Dataset(moist_loc_155),
-                   "156" : nc.Dataset(moist_loc_156),
-                   "157" : nc.Dataset(moist_loc_157),
-                   "158" : nc.Dataset(moist_loc_158),
-                   "159" : nc.Dataset(moist_loc_159),
-                  }
-                  
-    features = ["psi1","psi2","m"]
-    moists_keep = {}
-
-    # for moist in moists_full:
-        # moists_keep[moist] = {}
-        # for f in features:
-            # # moists_keep[moist][f] = torch.from_numpy(np.asarray(moists_full[moist][f])).float().cuda()
-            # moists_keep[moist][f] = np.asarray(moists_full[moist][f])
-         
-    print(f"pulling {features} and concatenating as numpy array")
-    for moist in moists_full:
-        moists_keep[moist] = []
-        for f in features:
-            moists_keep[moist].append([np.asarray(moists_full[moist][f])])
-        moists_keep[moist] = np.concatenate(moists_keep[moist], axis = 0)
-        moists_keep[moist] = np.moveaxis(moists_keep[moist], 0, 3)
-
-        
-    moists_keep_raw = moists_keep.copy()
-
-    ## computing normalized
-    print("normalizing (much more efficient in numpy), and converting to torch tensors")
-    moists_info = {}
-    for moist in moists_full:
-        moists_info[moist] = {}
-        for i, feat in enumerate(features, 0):
-            std = np.std(moists_keep[moist][:,:,:,i])
-            mean = np.mean(moists_keep[moist][:,:,:,i])
-            moists_info[moist][feat] = {"std" : std, "mean" : mean}
-            moists_keep[moist][:,:,:,i] = (moists_keep[moist][:,:,:,i] - mean)/std
-        moists_keep[moist] = torch.from_numpy(moists_keep[moist]).float().cuda()
-        
-    ## ramp up period, dimensions: feature, time, height (lattitude), width (longitude)
-
-    train = ["153", "155", "156", "157", "158", "159"]
-    test = ["151"]
-
-    rampuptstamp = 10000
-    lead = 6000
-
-    ## previous code 
-    if False:
-        mask_rho = np.asarray(FF['mask_rho'])
-        mask_rho_torch= torch.from_numpy(mask_rho).float().cuda()
-        lead = 5
-        delta_t = 1.0
-        psi_test_input_Tr_torch, psi_test_label_Tr_torch,_  = load_test_data(FF,lead)
-
-
-        M_test_level1=torch.mean((psi_test_input_Tr_torch.flatten()))
-        STD_test_level1=torch.std((psi_test_input_Tr_torch.flatten()))
-
-
-        psi_test_input_Tr_torch_norm_level1 = ((psi_test_input_Tr_torch[:,0,None,:,:]-M_test_level1)/STD_test_level1)
-        psi_test_label_Tr_torch_norm_level1 = ((psi_test_label_Tr_torch[:,0,None,:,:]-M_test_level1)/STD_test_level1)
-
-        print('mean value',M_test_level1)
-        print('std value',STD_test_level1)
-
-
-
-
-
-
-
-
-    ## previous code
-
-    psi_test_label_Tr = psi_test_label_Tr_torch.detach().cpu().numpy()
-    Nlat = np.size(psi_test_label_Tr,2)
-    Nlon = np.size(psi_test_label_Tr,3)
-
-    batch_size = 10 
-    num_epochs = 100
-    num_samples = 2
-
-    lamda_reg =0.9
-    wavenum_init=50
-    wavenum_init_ydir=50
-
-
-
-    modes = 128
-    width = 20
-
-    batch_size = 5
-    learning_rate = 0.001
-
-    ################################################################
-    # training and evaluation
-    ################################################################
-    net = FNO2d(modes, modes, width).cuda()
-    print(count_params(net))
-    net.load_state_dict(torch.load('BNN_FNO2D_LC_loss_Eulerstep_SSH_ocean_spectral_loss_modes_128_wavenum50lead5.pt'))
-    net.eval()
-
-    optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=1e-4)
-
-    for epoch in range(0, num_epochs):  # loop over the dataset multiple times
-
-     running_loss = 0.0
-
-
-     for k in range(1993,2020):
-      print('File index',k)
-
-      ## normalization, and loading data
-      G = nc.Dataset('/home/exouser/mount/ocean_reanalysis_daily/EnKF_surface_'+str(k)+'_5dmean_gom.nc')
-      trainN=350
-      psi_train_input_Tr_torch, psi_train_label_Tr_torch, psi_train_label2_Tr_torch, ocean_grid  = load_train_data(G,lead,trainN)
-
-      M_train_level1=torch.mean((psi_train_input_Tr_torch.flatten()))
-      STD_train_level1=torch.std((psi_train_input_Tr_torch.flatten()))
-
-
-
-
-      psi_train_input_Tr_torch_norm_level1 = ((psi_train_input_Tr_torch[:,0,None,:,:]-M_train_level1)/STD_train_level1)
-      psi_train_label_Tr_torch_norm_level1 = ((psi_train_label_Tr_torch[:,0,None,:,:]-M_train_level1)/STD_train_level1)
-      psi_train_label2_Tr_torch_norm_level1 = ((psi_train_label2_Tr_torch[:,0,None,:,:]-M_train_level1)/STD_train_level1)
-
-
-      for step in range(0,trainN-2*batch_size,batch_size):
-            # get the inputs; data is a list of [inputs, labels]
-            indices = np.random.permutation(np.arange(start=step, stop=step+batch_size))
-            input_batch, label_batch, label2_batch = psi_train_input_Tr_torch_norm_level1[indices,:,:,:], psi_train_label_Tr_torch_norm_level1[indices,:,:,:],psi_train_label2_Tr_torch_norm_level1[indices,:,:,:]
-
-            input_batch = input_batch.permute(0,2,3,1)
-            label_batch = label_batch.permute(0,2,3,1)
-            label2_batch = label2_batch.permute(0,2,3,1)
-
-            print('shape of input', input_batch.shape)
-            print('shape of label1', label_batch.shape)
-            print('shape of label2', label2_batch.shape)
-
-            # zero the parameter gradients
-            optimizer.zero_grad()
-
-            # forward + backward + optimize
-    #        output,_,_,_,_,_,_ = net(input_batch.cuda())
-            output = PECstep(net,input_batch.cuda())
-            output2 = PECstep(net,output.cuda())
-            print('shape of FNO2D output',output.shape)
-            print('shape of FNO2D output2',output2.shape)
-            #        loss = regular_loss(output, label_batch_crop.cuda())
-            # print statistics
-            loss = spectral_loss(output, output2, label_batch.cuda(),label2_batch.cuda(),wavenum_init,wavenum_init_ydir,lamda_reg,(torch.tensor(ocean_grid)).cuda())
-    #        loss = ocean_loss(output, label_batch_crop.cuda(),(torch.tensor(ocean_grid)).cuda())
-            loss.backward()
-            optimizer.step()
-    #        output_val = Eulerstep(net,(psi_test_input_Tr_torch_norm_level1[0:num_samples,:,0:Nlat,0:Nlon].reshape([num_samples,1,Nlat,Nlon])).permute(0,2,3,1))
-    #        output_val2 = Eulerstep(net,output_val)
-    #        val_loss = spectral_loss(output_val, output_val2,(psi_test_label_Tr_torch_norm_level1[0:num_samples,:,0:Nlat,0:Nlon].reshape([num_samples,1,Nlat,Nlon])).permute(0,2,3,1).cuda(),wavenum_init,wavenum_init_ydir,lamda_reg,(torch.tensor(ocean_grid)).cuda())
-    #        val_loss = ocean_loss(output_val, psi_test_label_Tr_torch[0:num_samples,:,0:Nlat-2,0:Nlon-1].reshape([num_samples,1,Nlat-2,Nlon-1]).cuda(),(torch.tensor(ocean_grid)).cuda())
-            if step % 100 == 0:    # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch + 1, step + 1, loss))
-    #            print('[%d, %5d] val_loss: %.3f' %
-    #                  (epoch + 1, step + 1, val_loss))
-                running_loss = 0.0
-                
-    print('Finished Training')
-
-    torch.save(net.state_dict(), './BNN_FNO2D_two_step__loss_PECstep_SSH_ocean_spectral_loss_modes_'+str(modes)+'_wavenum'+str(wavenum_init)+'delta_t_'+str(delta_t)+'lead'+str(lead)+'.pt')
-
-    print('BNN Model Saved')
-
-
-    ############# Auto-regressive prediction #####################
-
-    psi_test_label_Tr_torch_denorm = psi_test_label_Tr_torch_norm_level1*STD_test_level1+M_test_level1
-    psi_test_label_Tr = psi_test_label_Tr_torch_denorm.detach().cpu().numpy()
-
-    M=100
-    autoreg_pred = np.zeros([M,1,Nlat,Nlon]) 
-
-    for k in range(0,M):
-
-      if (k==0):
-
-        out = (PECstep(net,(psi_test_input_Tr_torch_norm_level1[k,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).permute(0,2,3,1).cuda()))
-        autoreg_pred[k,:,:,:] = (out.permute(0,3,1,2)).detach().cpu().numpy()
-
-      else:
-
-        out = (PECstep(net,(torch.from_numpy(autoreg_pred[k-1,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).float()).permute(0,2,3,1).cuda()))
-        autoreg_pred[k,:,:,:] = (out.permute(0,3,1,2)).detach().cpu().numpy()
-
-
-
-    M_test_level1 = M_test_level1.detach().cpu().numpy()
-    STD_test_level1 = STD_test_level1.detach().cpu().numpy()
-
-    matfiledata = {}
-    matfiledata[u'prediction'] = autoreg_pred*STD_test_level1+M_test_level1
-    matfiledata[u'Truth'] = psi_test_label_Tr
-    hdf5storage.write(matfiledata, '.', path_outputs+'predicted_FNO_2D_two_step_loss_PECstep_SSH_level_ocean_spectral_loss_5day_modes_'+str(modes)+'train_wavenumber'+str(wavenum_init)+'delta_t_'+str(delta_t)+'lead'+str(lead)+'lambda_'+str(lamda_reg)+'.mat', matlab_compatible=True)
-
-    print('Saved Predictions')
-
-if __name__ == "__main__":
-    #main()
-    pass
+## instead of this, will try actually including convolution layers in the nn itself?
+# def laplacian(field, step = 1):
+    # lapkernel = np.tile(np.array([[[0, 1, 0],
+                        # [1, -4, 1],
+                        # [0, 1, 0]]]), (field.shape[0],1,1))
+    # filters.convolve(field,lapkernel,mode='wrap')/step**2
+    # return field
+
+# def laplacian_mod(data, channels = [0,1]):
+    # datalap = np.empty(data[:,:,:,channels].shape)
+    # for ch in channels:
+        # datalap = np.concatenate([datalap, laplacian(datalap[...,ch])], axis = -1)
+        # print(datalap.shape)
+        # raise
