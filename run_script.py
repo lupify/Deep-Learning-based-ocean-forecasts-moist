@@ -89,12 +89,15 @@ moist_data_locs = {
                    707 : moist_loc_707,
                   }
 
-save_dir = "/home/exouser/nimrodxl1_mymount/"
+save_dir = "/media/volume/sdc"
 #save_fno_step_loc = f"/media/volume/sdb/lenny_outputs/save_fno_step_10-31-2023_meanNormalizedOnly.data"
 output_dir = f"{save_dir}/lenny_outputs"
 data_dir = f"{output_dir}/model_data"
-data_loc = f"{data_dir}/save_fno_step_3-29-23_allNorm_noRampUp.pkl"
-models_dir = f"{output_dir}/models/singleSteps_allLoss_2-5-24/"
+# data_loc = f"{data_dir}/save_fno_step_3-29-23_allNorm_noRampUp.pkl"
+data_loc = f"{data_dir}/save_fno_step_4-8-24_allNorm.pkl"
+# data_loc = f"{data_dir}/save_fno_step_4-4-24_allNorm_diff.pkl"
+# models_dir = f"{output_dir}/models/singleSteps_allLoss_2-5-24/"
+models_dir = f"{output_dir}/models/singleSteps_4-8-24/"
 
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
@@ -120,7 +123,6 @@ if not os.path.exists(data_loc):
     moists_keep_fno, moists_keep_fno_timestamps, moists_info = datau.data_prep_save(data_loc,
                                                                                       moist_data_locs = moist_data_locs,
                                                                                       channels = channels,
-                                                                                      rampuptstamp = 0,
                                                                                       save = True)
 else:
     moists_keep_fno, moists_keep_fno_timestamps, moists_info =  datau.data_load(data_loc)
@@ -204,9 +206,13 @@ Running training for variations on step methods and lambdas given
 # lambda_ffts = [0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1. ]
     
 # step_methods = ['directstep']
-step_methods = ['directstep', "RK4step", "PECstep", "Eulerstep"]
+## rerun directstep, 0.0...something weird happened
+# step_methods = ["PECstep", "Eulerstep", "RK4step", "directstep"]
+step_methods = ["directstep"]
+# step_methods = ["RK4step", "directstep"]
 # lambda_ffts = [.01]
 lambda_ffts = [0.0, .05, .1, .15, .2, .4]
+# lambda_ffts = [0.0, .16]
 # lambda_ffts = [.0, .5]
 
 param_vars = list(itertools.product(*[step_methods, lambda_ffts]))
@@ -223,7 +229,7 @@ for step_method, lambda_fft in param_vars:
     model_name = f"FNO2D_stepMethod-{step_method}_lambda-{lambda_fft_str}_dataPrep-{data_prep}"
     nn_dir = f"{models_dir}/{model_name}"
     nn_loc = f"{nn_dir}/model.pt"
-    pred_plots_dir = f"{nn_dir}/pred_plots"
+    pred_plots_dir = f"{nn_dir}/pred_plots_noises"
     
     # if os.path.exists(f"{pred_plots_dir}/pred-act.mp4"):
         # print(f"Final plot exists: {pred_plots_dir}/pred-act.mp4 continuing...")
@@ -231,7 +237,6 @@ for step_method, lambda_fft in param_vars:
         
     if not os.path.exists(nn_loc):
         print(f"''{nn_loc}'' does not exist. Training model...")
-    
         model_params = \
              {
               "model_name" : model_name,
@@ -272,16 +277,17 @@ for step_method, lambda_fft in param_vars:
         pprint.pprint("model_params:")
         pprint.pprint(model_params)
         
-        ## to get shape of input
-        d = {t:moists_keep_fno[t] for t in [151]}
-        inputs, targets = datau.load_data_fno(d, data_prep, data_prep_args)
+        # ## to get shape of input
+        # d = {t:moists_keep_fno[t] for t in [151]}
+        # inputs, targets = datau.load_data_fno(d, data_prep, data_prep_args)
         
-        net = FNO2d(modes1, modes2, width, channels = inputs.shape[3], channelsout = targets.shape[3]).to("cuda")
+        # net = FNO2d(modes1, modes2, width, channels = inputs.shape[3], channelsout = targets.shape[3]).to("cuda")
+        net = FNO2d(modes1, modes2, width, channels = 3, channelsout = 3).to("cuda")
         print(f"model parameter count: {count_params(net)}")
 
-        del inputs
-        del targets
-        del d
+        # del inputs
+        # del targets
+        # del d
         
         #optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=1e-4)
         #optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)#, weight_decay=1e-4)
@@ -348,16 +354,18 @@ for step_method, lambda_fft in param_vars:
             epoch_losses = np.concatenate([epoch_losses,
                                                np.array([[epoch, step, loss.item()]])],
                                                axis = 0)
-
-        print('Finished Training')
-        
-        os.mkdir(nn_dir)
+                                               
+            
+        if not os.path.exists(nn_dir):
+            os.makedirs(nn_dir)
         
         with open(f"{nn_dir}/model_params.yml", 'w') as h:
             yaml.dump(model_params, h, default_flow_style=False)
         
         with open(f"{nn_dir}/epoch_losses.pkl", 'wb') as h:
             pickle.dump(epoch_losses, h)
+            
+        print('Finished Training')
         
         torch.save(net.state_dict(), nn_loc)
         print('FNO Model and Params Saved')
@@ -372,7 +380,8 @@ for step_method, lambda_fft in param_vars:
         plt.title(f"{model_name}\nloss function: {lossFunction}, lambda_fft: {np.around(lambda_fft,4)}")
         plt.savefig(f"{nn_dir}/{model_name}_losses.png")
         plt.close()
-
+    
+    ## loading previously existing model
     else:
         print(f"''{nn_loc}'' exist! Loading model...")
         with open(f"{nn_dir}/model_params.yml", 'r') as h:
@@ -385,8 +394,8 @@ for step_method, lambda_fft in param_vars:
         data_prep = model_params["data_prep"]
         data_prep_args = model_params["data_prep_args"]
         data_mod_loc = model_params["data_mod_loc"]
-        nn_dir = model_params["model_dir"]
-        nn_loc = model_params["model_loc"]
+        # nn_dir = model_params["model_dir"]
+        # nn_loc = model_params["model_loc"]
         model_name = model_params["model_name"]
         num_epochs = model_params["num_epochs"]
         lambda_fft = model_params["lambda_fft"]
@@ -414,168 +423,191 @@ for step_method, lambda_fft in param_vars:
         del d
         
     #if not os.path.exists(f"{pred_plots_dir}/pred-act.mp4"):
-    if 1:
-        # actual = moists_keep_fno[test[0]][:autoregsteps+1]
-        
-        ts_start = data_prep_args["ts_in"]
-        ts_start = 1000
-        ## if the model only contains dry, and singleStep
-        ## starting on the first valid step that can be made with autoregsteps, or another starting tstamp
-        
-        actual = moists_keep_fno[test[0]][ts_start:autoregsteps+ts_start+1]
-        tstamp_start = moists_keep_fno_timestamps[test[0]][ts_start]
-        ## singlestep to be saved to autoreg_pred, to compare to actual later on
-        autoreg_pred = actual[[0]] ## unseen data
-        #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
-        
-        ## doing it directly from the fno data, since we can just compare directly
-        actual_fno_in, actual_fno_tar = datau.prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
-        # actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
-        previnput = actual_fno_in[[0]]
-        
-        ## single step
-        print(f"Running autoregression {data_prep}...")
-        if data_prep == "singleStep":
-            
-            ## if the model only contains dry, and singleStep
-            ## starting on the first valid step that can be made with autoregsteps
-            actual = moists_keep_fno[test[0]][0:autoregsteps+1]
-            tstamp_start = moists_keep_fno_timestamps[test[0]][0]
-            ## singlestep to be saved to autoreg_pred, to compare to actual later on
-            autoreg_pred = actual[[0]] ## unseen data
-            #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
-            
-            ## doing it directly from the fno data, since we can just compare directly
-            #actual_fno_in, actual_fno_tar = prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
-            actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
-            previnput = actual_fno[[0]]
-        
-            for step in range(autoregsteps):
-                # grid = net.get_grid(previnput.shape, previnput.device)
-                # previnput = torch.cat((previnput, grid), dim=-1)
-                output = integration_methods[step_method](net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
-                autoreg_pred = np.concatenate([autoreg_pred, output], axis = 0) 
-                previnput = output
-        
-        ## tsteps
-        elif data_prep == "tsteps":
-            
-            ts_start = data_prep_args["ts_in"]
-            ## if the model only contains dry, and singleStep
-            ## starting on the first valid step that can be made with autoregsteps
-            actual = moists_keep_fno[test[0]][ts_start:autoregsteps+ts_start+1]
-            tstamp_start = moists_keep_fno_timestamps[test[0]][ts_start]
-            ## singlestep to be saved to autoreg_pred, to compare to actual later on
-            autoreg_pred = actual[[0]] ## unseen data
-            #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
-            
-            ## doing it directly from the fno data, since we can just compare directly
-            actual_fno_in, actual_fno_tar = prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
-            # actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
-            previnput = actual_fno_in[[0]]
-            
-            for step in range(1, autoregsteps+1):
-                output = integration_methods[step_method](net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
-                output_step = output[:,:,:,:3]
-                autoreg_pred = np.concatenate([autoreg_pred, output_step], axis = 0)
-                ## shifts, removes channels associated with previous start time, and adds last of new output
-                previnput = np.concatenate([previnput[:,:,:,3:], output_step], axis = 3)
-                if step % 100 == 0:
-                    specloss = losses[lossFunction](torch.tensor(output).cuda(),
-                                                       torch.tensor(actual[[step]]).cuda(),
-                                                       wavenum_init,
-                                                       wavenum_init_ydir,
-                                                       lambda_fft = lambda_fft,
-                                                       grid_valid_size = output.shape[1]*output.shape[2],
-                                                       channels = output.shape[3])[0]
-                    print(f"step {step}: loss: {specloss.item()}")
-                    
-        if not os.path.exists(pred_plots_dir):
-            os.mkdir(pred_plots_dir)
-        
-        with open(f"{pred_plots_dir}/pred.pkl","wb") as h:
-            pickle.dump(autoreg_pred, h)
-            
-        gs_dir = f"{pred_plots_dir}/grid_spectrum"
-        if not os.path.exists(gs_dir):
-            os.mkdir(gs_dir)
-        
-        # tsteps_pred = autoreg_pred.shape[0]
-        steps_save = [0,1,2,5,20,50,200,500]
-        for step in steps_save:
-            plotting.plot_2d_grid_spectrum(autoreg_pred,
-                                           channels = channel_names,
-                                           frame=step,
-                                           savename = f"pred_step-{step}",
-                                           output_dir = gs_dir,
-                                           title = f"{model_name} autoregressive predictions; moist {test[0]} init",
-                                           begframe = tstamp_start)
-                                           
-            plotting.plot_2d_grid_spectrum(actual,
-                                           channels = channel_names,
-                                           frame=step,
-                                           savename = f"actual_step-{step}",
-                                           output_dir = gs_dir,
-                                           title = f"Actual predictions moist {test[0]}",
-                                           begframe = tstamp_start)
-        
-        plotting.plot_rmse(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/mseVtime_full.png")
-        plotting.plot_acc(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/accVtime_full.png")
-        plotting.plot_spectrums(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs_full.png")
-        plotting.plot_spectrums2(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs2_full.png")
-        
-        # 2 weeks
-        short_tsteps = 14*4
-        plotting.plot_rmse(autoreg_pred[:short_tsteps], actual[:short_tsteps], channels = channel_names, loc = f"{pred_plots_dir}/mseVtime_short.png")
-        plotting.plot_acc(autoreg_pred[:short_tsteps], actual[:short_tsteps], channels = channel_names, loc = f"{pred_plots_dir}/accVtime_short.png")
-        plotting.plot_spectrums(autoreg_pred[:short_tsteps], actual[:short_tsteps], tsteps = np.arange(0, short_tsteps, 8), channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs_short.png")
-        plotting.plot_spectrums2(autoreg_pred[:short_tsteps], actual[:short_tsteps], tsteps = np.arange(0, short_tsteps, 8), channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs2_short.png")
-        
-        
-        ## plot saving for animation, predictions
-        gsp_dir = f"{pred_plots_dir}/pred_pngs"
-        if not os.path.exists(gsp_dir):
-            os.mkdir(gsp_dir)
-            
-        for step in np.arange(0,max_tstep_animation,1):
-            if step%(4*10) == 0:
-                print(f"grid spectrum plot for step {step}")
-            str_step = "0"*(6-len(str(step)))+str(step)
-            plotting.plot_2d_grid_spectrum(autoreg_pred,
-                                           channels = channel_names,
-                                           frame=step,
-                                           savename = f"pred_{str_step}",
-                                           output_dir = gsp_dir,
-                                           title = f"{model_name} autoregressive predictions; moist {test[0]} init",
-                                           cmap = cm.viridis,
-                                           begframe = tstamp_start)
-                                           
-        os.system(f'ffmpeg -y -r 20 -f image2 -s 1920x1080 -i {gsp_dir}/pred_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {pred_plots_dir}/pred.mp4')
-        
-        ## plot saving for animation, predictions - actual
-        gspa_dir = f"{pred_plots_dir}/pred-actual_pngs"
-        if not os.path.exists(gspa_dir):
-            os.mkdir(gspa_dir)
-        
-        ## plot saving for animation
-        for step in np.arange(0,max_tstep_animation,1):
-            if step%(4*10) == 0:
-                print(f"grid spectrum plot for step {step}")
-            str_step = "0"*(6-len(str(step)))+str(step)
-            plotting.plot_2d_grid_spectrum(autoreg_pred-actual,
-                                           channels = channel_names,
-                                           frame=step,
-                                           savename = f"pred-actual_{str_step}",
-                                           output_dir = gspa_dir,
-                                           title = f"{model_name} autoregressive predictions-actual; moist {test[0]} init",
-                                           cmap = cm.bwr,
-                                           begframe = tstamp_start)
-                                           
-        os.system(f'ffmpeg -y -r 20 -f image2 -s 1920x1080 -i {gspa_dir}/pred-actual_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {pred_plots_dir}/pred-act.mp4')
-        
-        ## should implement a spectrum loss method to approximate differece between predicted and actual mean (right now it does actual snapshot)
+    ## random permutations to test algorithm stability
+    pred_plots_dir_og = pred_plots_dir
+    for noise in ["none"] + list(range(0)):
+    # for noise in ["none"]:
+    # for noise in list(range(0,10)):
+        pred_plots_dir = pred_plots_dir_og + f"/noise-{noise}"
+        if os.path.exists(pred_plots_dir):
+        # if True:
+          print(f"{pred_plots_dir} exists. Continuing...")
+          continue
+        else:
+          # actual = moists_keep_fno[test[0]][:autoregsteps+1]
+          ts_start = data_prep_args["ts_in"]
+          ts_start = 1000
+          ## if the model only contains dry, and singleStep
+          ## starting on the first valid step that can be made with autoregsteps, or another starting tstamp
+          
+          actual = moists_keep_fno[test[0]][ts_start:autoregsteps+ts_start+1]
+          tstamp_start = moists_keep_fno_timestamps[test[0]][ts_start]
+          ## singlestep to be saved to autoreg_pred, to compare to actual later on
+          autoreg_pred = actual[[0]] ## unseen data
+          
+          #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
+          
+          ## doing it directly from the fno data, since we can just compare directly
+          actual_fno_in, actual_fno_tar = datau.prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
+          # actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
+          previnput = actual_fno_in[[0]]
+          
+          ## single step
+          print(f"Running autoregression {data_prep}...")
+          if data_prep == "singleStep":
+              
+              ## if the model only contains dry, and singleStep
+              ## starting on the first valid step that can be made with autoregsteps
+              actual = moists_keep_fno[test[0]][0:autoregsteps+1]
+              tstamp_start = moists_keep_fno_timestamps[test[0]][0]
+              ## singlestep to be saved to autoreg_pred, to compare to actual later on
+              autoreg_pred = actual[[0]] ## unseen data
+              #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
+              
+              ## doing it directly from the fno data, since we can just compare directly
+              #actual_fno_in, actual_fno_tar = prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
+              actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
+              previnput = actual_fno[[0]]
+              
+              ## noise for testing stability
+              noise_factor = .02
+              if noise == "none":
+                  print("Not adding any noise on top of the initial step")
+              else:
+                  print(f"Adding noise on top of the initial step, rand int: {noise}")
+                  np.random.seed(noise)
+                  previnput = previnput + (np.random.normal(size = previnput.shape) * noise_factor).astype("float32")
+                  
+              for step in range(autoregsteps):
+                  # grid = net.get_grid(previnput.shape, previnput.device)
+                  # previnput = torch.cat((previnput, grid), dim=-1)
+                  output = integration_methods[step_method](net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
+                  autoreg_pred = np.concatenate([autoreg_pred, output], axis = 0) 
+                  previnput = output
+          
+          ## tsteps
+          elif data_prep == "tsteps":
+              
+              ts_start = data_prep_args["ts_in"]
+              ## if the model only contains dry, and singleStep
+              ## starting on the first valid step that can be made with autoregsteps
+              actual = moists_keep_fno[test[0]][ts_start:autoregsteps+ts_start+1]
+              tstamp_start = moists_keep_fno_timestamps[test[0]][ts_start]
+              ## singlestep to be saved to autoreg_pred, to compare to actual later on
+              autoreg_pred = actual[[0]] ## unseen data
+              #previnput = torch.from_numpy(fno_form(moists_keep_fno[151][0:ts_in]).shape).float().cuda() ## seen data, part of training
+              
+              ## doing it directly from the fno data, since we can just compare directly
+              actual_fno_in, actual_fno_tar = prep_in_tar_data_2(moists_keep_fno[test[0]][:autoregsteps+1], **data_prep_args)
+              # actual_fno = moists_keep_fno[test[0]][:autoregsteps+1]
+              previnput = actual_fno_in[[0]]
+              
+              for step in range(1, autoregsteps+1):
+                  output = integration_methods[step_method](net, torch.tensor(previnput).cuda()).cpu().detach().numpy()
+                  output_step = output[:,:,:,:3]
+                  autoreg_pred = np.concatenate([autoreg_pred, output_step], axis = 0)
+                  ## shifts, removes channels associated with previous start time, and adds last of new output
+                  previnput = np.concatenate([previnput[:,:,:,3:], output_step], axis = 3)
+                  if step % 100 == 0:
+                      specloss = losses[lossFunction](torch.tensor(output).cuda(),
+                                                         torch.tensor(actual[[step]]).cuda(),
+                                                         wavenum_init,
+                                                         wavenum_init_ydir,
+                                                         lambda_fft = lambda_fft,
+                                                         grid_valid_size = output.shape[1]*output.shape[2],
+                                                         channels = output.shape[3])[0]
+                      print(f"step {step}: loss: {specloss.item()}")
+                      
+          if not os.path.exists(pred_plots_dir):
+              os.makedirs(pred_plots_dir)
+          
+          with open(f"{pred_plots_dir}/pred.pkl","wb") as h:
+              pickle.dump(autoreg_pred, h)
+              
+          gs_dir = f"{pred_plots_dir}/grid_spectrum"
+          if not os.path.exists(gs_dir):
+              os.makedirs(gs_dir)
+          
+          # tsteps_pred = autoreg_pred.shape[0]
+          steps_save = [0,1,2,5,20,50,200,500]
+          for step in steps_save:
+              plotting.plot_2d_grid_spectrum(autoreg_pred,
+                                             actual,
+                                             channels = channel_names,
+                                             frame=step,
+                                             savename = f"pred_step-{step}",
+                                             output_dir = gs_dir,
+                                             title = f"{model_name} autoregressive predictions; moist {test[0]} init",
+                                             begframe = tstamp_start)
+                                             
+              # plotting.plot_2d_grid_spectrum(actual,
+                                             # actual = None,
+                                             # channels = channel_names,
+                                             # frame=step,
+                                             # savename = f"actual_step-{step}",
+                                             # output_dir = gs_dir,
+                                             # title = f"Actual predictions moist {test[0]}",
+                                             # begframe = tstamp_start)
+          
+          plotting.plot_rmse(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/mseVtime_full.png")
+          plotting.plot_acc(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/accVtime_full.png")
+          plotting.plot_spectrums(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs_full.png")
+          plotting.plot_spectrums2(autoreg_pred, actual, channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs2_full.png")
+          
+          # 2 weeks
+          short_tsteps = 14*4
+          plotting.plot_rmse(autoreg_pred[:short_tsteps], actual[:short_tsteps], channels = channel_names, loc = f"{pred_plots_dir}/mseVtime_short.png")
+          plotting.plot_acc(autoreg_pred[:short_tsteps], actual[:short_tsteps], channels = channel_names, loc = f"{pred_plots_dir}/accVtime_short.png")
+          plotting.plot_spectrums(autoreg_pred[:short_tsteps], actual[:short_tsteps], tsteps = np.arange(0, short_tsteps, 8), channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs_short.png")
+          plotting.plot_spectrums2(autoreg_pred[:short_tsteps], actual[:short_tsteps], tsteps = np.arange(0, short_tsteps, 8), channels = channel_names, loc = f"{pred_plots_dir}/spectrum_graphs2_short.png")
+          
+          
+          ## plot saving for animation, predictions
+          gsp_dir = f"{pred_plots_dir}/pred_pngs"
+          if not os.path.exists(gsp_dir):
+              os.mkdir(gsp_dir)
+              
+          for step in np.arange(0,max_tstep_animation,1):
+              if step%(4*10) == 0:
+                  print(f"grid spectrum plot for step {step}")
+              str_step = "0"*(6-len(str(step)))+str(step)
+              plotting.plot_2d_grid_spectrum(autoreg_pred,
+                                             actual,
+                                             channels = channel_names,
+                                             frame=step,
+                                             savename = f"pred_{str_step}",
+                                             output_dir = gsp_dir,
+                                             title = f"{model_name} autoregressive predictions; moist {test[0]} init",
+                                             cmap = cm.viridis,
+                                             begframe = tstamp_start)
+                                             
+          os.system(f'ffmpeg -y -r 20 -f image2 -s 1920x1080 -i {gsp_dir}/pred_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {pred_plots_dir}/pred.mp4')
+          
+          ## plot saving for animation, predictions - actual
+          gspa_dir = f"{pred_plots_dir}/pred-actual_pngs"
+          if not os.path.exists(gspa_dir):
+              os.mkdir(gspa_dir)
+          
+          ## plot saving for animation
+          for step in np.arange(0,max_tstep_animation,1):
+              if step%(4*10) == 0:
+                  print(f"grid spectrum plot for step {step}")
+              str_step = "0"*(6-len(str(step)))+str(step)
+              plotting.plot_2d_grid_spectrum(autoreg_pred-actual,
+                                             actual = None,
+                                             channels = channel_names,
+                                             frame=step,
+                                             savename = f"pred-actual_{str_step}",
+                                             output_dir = gspa_dir,
+                                             title = f"{model_name} autoregressive predictions-actual; moist {test[0]} init",
+                                             cmap = cm.bwr,
+                                             begframe = tstamp_start)
+                                             
+          os.system(f'ffmpeg -y -r 20 -f image2 -s 1920x1080 -i {gspa_dir}/pred-actual_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {pred_plots_dir}/pred-act.mp4')
+          
+          ## should implement a spectrum loss method to approximate differece between predicted and actual mean (right now it does actual snapshot)
     
-## for mp4 of the actual predictions
+## for mp4 of the actual
 ## for single steps
 if 1:
     ## for actual prediction
@@ -593,7 +625,8 @@ if 1:
         os.mkdir(gsa_dir)
         
     ## plot saving for animation
-    for step in np.arange(0,actual.shape[0],1):
+    # for step in np.arange(0,actual.shape[0],1):
+    for step in np.arange(0,max_tstep_animation,1):
         if step%(4*10) == 0:
             print(f"grid spectrum plot for step {step}")
         str_step = "0"*(6-len(str(step)))+str(step)
@@ -605,12 +638,12 @@ if 1:
                                        title = f"actual target values",
                                        begframe = moists_keep_fno_timestamps[151][0])
                                            
-    os.system(f'ffmpeg -y -r 30 -f image2 -s 1920x1080 -i {gsa_dir}/actual_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {actual_dir}/actual.mp4')
+    os.system(f'ffmpeg -y -r 20 -f image2 -s 1920x1080 -i {gsa_dir}/actual_%06d.png -vcodec libx264 -crf 25  -pix_fmt yuv420p {actual_dir}/actual.mp4')
 
 
 
 ## code for creating comparisons between each of the different runs
-if 1:
+if 0:
     model_list = os.listdir(models_dir)
     actual_loc = "/home/exouser/nimrodxl1_mymount/lenny_outputs/models/singleSteps_1-12-24/actual_moist-151/actual.pkl"
 
@@ -661,14 +694,14 @@ if 1:
     
     ## comparison files 
     compare_runs = ['FNO2D_stepMethod-Eulerstep_lambda-0p0_dataPrep-singleStep',
-                     'FNO2D_stepMethod-Eulerstep_lambda-0p16_dataPrep-singleStep',
+                     'FNO2D_stepMethod-Eulerstep_lambda-0p2_dataPrep-singleStep',
                      'FNO2D_stepMethod-directstep_lambda-0p0_dataPrep-singleStep',
-                     'FNO2D_stepMethod-directstep_lambda-0p16_dataPrep-singleStep',]
+                     'FNO2D_stepMethod-directstep_lambda-0p2_dataPrep-singleStep',]
 
     compare_run_names = [r"Eulerstep $\lambda=0.0$",
-                         r"Eulerstep $\lambda=0.16$",
+                         r"Eulerstep $\lambda=0.2$",
                          r"directstep $\lambda=0.0$",
-                         r"directstep $\lambda=0.16$",]
+                         r"directstep $\lambda=0.2$",]
 
     compare_run_colors = ["red",
                           "red",

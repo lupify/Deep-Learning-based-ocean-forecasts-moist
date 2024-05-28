@@ -124,7 +124,8 @@ def animate_2d_grid_spectrum(data,
     ani = animation.ArtistAnimation(fig=fig, artists=artists, interval=interval)
     ani.save(filename=loc, writer=writervideo)
 
-def plot_2d_grid_spectrum(data, 
+def plot_2d_grid_spectrum(data,
+                            actual_spectrum = None,
                              channels = ["psi1","psi2","moist"],
                              savename = None,
                              output_dir = "./outputs",
@@ -149,6 +150,7 @@ def plot_2d_grid_spectrum(data,
     
     # axes limits on spectrum plots
     lims = [2.5, 20, 2]
+    
     for i in range(data.shape[3]):
         # set title to channel name
         # dmin, dmax = data[frame,:,:,i].min(), data[frame,:,:,i].max()
@@ -170,7 +172,14 @@ def plot_2d_grid_spectrum(data,
         ax[1,i].plot(spectrum_mean, color = "blue")[0]
         ax[1,i].grid(alpha = .5)
         ax[1,i].set_ylim(0, lims[i])
-    
+        
+        if actual_spectrum is not None:
+            # spectrum = np.abs(fft.rfft(actual[:,:,:,i], axis = 2)[:,:,kex:64,:], axis = 1)
+            # spectrum_mean = np.mean(spectrum, axis = 0)
+            # spectrum_mean = np.abs(fft.rfft(actual[:,:,:,i], axis = 2)[:,:,kex:64]).mean(axis = 1).mean(axis = 0)
+            spectrum_mean = actual_spectrum[...,i]
+            ax[1,i].plot(spectrum_mean, color = "black", linestyle = "--", alpha = .7)[0] 
+        
     ax[0,0].set_xlabel("lon")
     ax[0,0].set_ylabel("lat")
     ax[1,0].set_xlabel(r"wavenumber, $k$")
@@ -471,6 +480,46 @@ def plot_compare_spectrums2(actual,
         
     ax[0].set_xlabel(r"Wavenumber, $k$")
     ax[0].set_ylabel(r"Amplitude")
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+
+def plot_compare_energy_tsteps(actual,  
+                            preds,
+                            labels_properties,
+                            channels = ["psi1","psi2"],
+                            tsteps = [1, 28],
+                            kex = 1,
+                            cmap = cm.rainbow,
+                            dt = .25,
+                            loc = "./plot_spec2.png"):
+                            
+    fig, ax = plt.subplots(1, actual.shape[3], dpi = 200, figsize = (12,4))
+    
+    for ich, ch in enumerate(channels,0):
+        for ipr, pred in enumerate(preds, 0):
+            for itstep, tstep in enumerate(tsteps,0):
+                
+                upred = -(pred[tstep,1:,:,ich] - pred[tstep,:-1,:,ich])/dt
+                vpred = (pred[tstep,:,1:,ich] - pred[tstep,:,:-1,ich])/dt
+                
+                # latitude mean
+                totE_pred = np.sum(upred**2+vpred**2, axis = 1)/127
+        
+        uactual = -(np.mean(actual[tstep,1:,:,ich], axis = 0) - np.mean(actual[0,:-1,:,ich], axis = 0))/dt
+        vactual = (np.mean(actual[tstep,:,1:,ich], axis = 0) - np.mean(actual[tstep,:,:-1,ich], axis = 0))/dt
+        totE_actual = np.sum(uactual**2+vactual**2, axis = 1)/127
+        
+        ax[ich].plot(ks, spectrum_mean, color = "black", linestyle = "--", label = f"actual (mean)", zorder = 20)
+
+    
+    ax[len(channels)-1].legend(bbox_to_anchor=(1.1, 1.05))
+    for ich, ch in enumerate(channels,0):
+        ax[ich].set_title(ch)
+        
+    ax[0].set_xlabel(r"Lattitude")
+    ax[0].set_ylabel(r"Energy")
     
     plt.plot()
     plt.savefig(fname=loc, bbox_inches='tight')

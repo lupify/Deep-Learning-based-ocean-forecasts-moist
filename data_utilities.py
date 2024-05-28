@@ -10,16 +10,22 @@ def data_prep_save(data_loc,
                                "psi2" : ["mean", "std"],
                                "m" : ["mean", "std"],
                               },
-                   rampuptstamp = 10000,
+                   rampuptstamp = 4000,
+                   endstamp = 18000,
                    save = True):
                   
-    print(f"Loading moist dataset, and saving to loc {data_loc}")
+    print(f"Loading moist dataset")
+    print(f"...save: {save}, saving loc: {data_loc}")
     print("loading moist datasets...")
     
     moists_full = {}
     for m in moist_data_locs.keys():
-        moists_full[m] = nc.Dataset(moist_data_locs[m])
-                  
+        try:
+            print(f"{m} : {moist_data_locs[m]}")
+            moists_full[m] = nc.Dataset(moist_data_locs[m])
+        except:
+            print(f"...skipping. Error loading nc")
+            continue
     moists_keep = {}
 
     print(f"pulling {list(channels.keys())} and concatenating as numpy array")
@@ -45,34 +51,35 @@ def data_prep_save(data_loc,
         for i, ch in enumerate(list(channels.keys()), 0):
 
             if "std" in channels[ch]:
-                std = np.std(moists_keep[moist][:,:,:,i])
+                std = np.std(moists_keep[moist][rampuptstamp:endstamp,:,:,i])
             else:
                 std = 1.0
             if "mean" in channels[ch]:
-                mean = np.mean(moists_keep[moist][:,:,:,i])
+                mean = np.mean(moists_keep[moist][rampuptstamp:endstamp,:,:,i])
             else:
                 mean = 0.0
 
             moists_info[moist][ch] = {"std" : std, "mean" : mean, "index" : i}
             moists_keep[moist][:,:,:,i] = (moists_keep[moist][:,:,:,i] - mean)/std
 
-    ## ramp up period, dimensions: feature, time, height (lattitude), width (longitude)
-    # rampuptstamp = 10000
+    ## ramp up period, dimensions: feature, time, height (latitude), width (longitude)
     moists_keep_fno_timestamps = {}
     moists_keep_fno = {}
 
     for moist in moists_keep:
         moists_keep_fno_timestamps[moist] = np.arange(moists_keep[moist].shape[0])
-        moists_keep_fno[moist] = moists_keep[moist][rampuptstamp:,:,:,:]
-        moists_keep_fno_timestamps[moist] = moists_keep_fno_timestamps[moist][rampuptstamp:]
+        moists_keep_fno[moist] = moists_keep[moist][rampuptstamp:endstamp,:,:,:]
+        moists_keep_fno_timestamps[moist] = moists_keep_fno_timestamps[moist][rampuptstamp:endstamp]
         moists_keep_fno[moist] = moists_keep_fno[moist]
         moists_keep_fno_timestamps[moist] = moists_keep_fno_timestamps[moist]
-
-    with open(data_loc, "wb") as h:
-        pickle.dump([moists_keep_fno,
-                     moists_keep_fno_timestamps,
-                     moists_info,
-                    ], h)
+    
+    if save:
+        with open(data_loc, "wb") as h:
+            pickle.dump([moists_keep_fno,
+                         moists_keep_fno_timestamps,
+                         moists_info,
+                        ], 
+                        h)
 
     return moists_keep_fno, moists_keep_fno_timestamps, moists_info
 
