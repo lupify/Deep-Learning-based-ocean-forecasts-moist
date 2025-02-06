@@ -13,7 +13,10 @@ def data_prep_save(data_loc,
                    rampuptstamp = 4000,
                    endstamp = 18000,
                    save = True):
-                  
+    """
+    Loads data all at once, and saves to single pkl file. This is not efficient memory wise, but works faster.
+    """
+    
     print(f"Loading moist dataset")
     print(f"...save: {save}, saving loc: {data_loc}")
     print("loading moist datasets...")
@@ -89,6 +92,53 @@ def data_load(data_loc):
         moists_keep_fno, moists_keep_fno_timestamps, moists_info = pickle.load(h)
     
     return moists_keep_fno, moists_keep_fno_timestamps, moists_info
+
+def data_load_steps(data_loc_steps,
+                      channels = ["psi1", "psi2", "m"],
+                      shuffle = True
+                      ):
+    """
+    Loading data at specific steps from data_locs.
+    Chooses ranges for each of the data_locs. data_loc steps is a list with entries [[<loc_1 loc>, [<step int1>, <step int2>,...]], [<loc_2 loc>, [<step int1>, <step int2>,...]]]
+
+    Note, due to the fact that each nc takes some time to load, should organize data_loc_steps 
+    """
+
+    assert type(data_loc_steps) == type([])
+    assert len(data_loc_steps) > 0
+
+    ## since all the initial values must be added first 
+    numchannels = len(channels)
+    
+    data_temp = nc.Dataset(data_loc_steps[0][0])
+    data_shape = data_temp[channels[0]].shape
+    num_steps = np.sum([len(data_loc_steps[l][1]) for l in range(len(data_loc_steps))])
+    data_combined = np.empty((num_steps,data_shape[1], data_shape[2], len(channels)))
+    del data_temp
+
+    istep = 0
+    for data_loc_step in data_loc_steps:
+        
+        [data_loc, data_steps] = data_loc_step
+        print(data_loc, len(data_steps))
+        data = nc.Dataset(data_loc)
+        
+        for ich, ch in enumerate(channels,0):
+            data_combined[istep:istep+len(data_steps),:,:,ich] = data[ch][:][data_steps]
+        
+        istep += istep+len(data_steps)
+        data.close()
+        del data
+
+    ## the list of each of the individual steps, so can keep track during shuffling below
+    data_locs_individual = [[data_loc_steps[i][0], data_loc_steps[i][1][j]] for i in range(len(data_loc_steps)) for j in range(len(data_loc_steps[i][1]))]
+    if shuffle:
+        shuffints = np.random.permutation(data_combined.shape[0])
+        data_combined = data_combined[shuffints]
+        data_locs_individual = [data_locs_individual[i] for i in shuffints]
+
+    return data_combined, data_locs_individual
+
 
 ## only works for one timestep
 def concatenate_data_singleStep(data_dict,

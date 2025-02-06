@@ -167,7 +167,7 @@ def plot_2d_grid_spectrum(data,
         fig.colorbar(gridplot, cax=cax, orientation='vertical')
         
         # spectrum
-        spectrum = np.abs(fft.rfft(data[frame,:,:,i], axis = 1)[:,kex:64])
+        spectrum = np.abs(fft.rfft(data[frame,:,:,i], axis = 1)[:,kex:])
         spectrum_mean = np.mean(spectrum, axis = 0)
         ax[1,i].plot(spectrum_mean, color = "blue")[0]
         ax[1,i].grid(alpha = .5)
@@ -413,7 +413,7 @@ def plot_compare_rmse(actual,
     
     for ich, ch in enumerate(channels,0):
         for ipr, pred in enumerate(preds, 0):
-            sqerrors = []
+            rmses = []
             tsteps = np.arange(actual.shape[0])
             #d1c = data1[:,:,:,ich].mean(axis = 0)
             ## time mean computed
@@ -422,10 +422,10 @@ def plot_compare_rmse(actual,
             for tstep in tsteps:
                 d1t = pred[tstep,:,:,ich]
                 d2t = actual[tstep,:,:,ich]
-                sqerrors.append(np.sqrt(np.mean((d1t-d2t)**2)))
+                rmses.append(np.sqrt(np.mean((d1t-d2t)**2)))
                 
             ax[ich].plot(tsteps/4., 
-                         sqerrors, 
+                         rmses, 
                          label = labels_properties[ipr]["label"], 
                          color = labels_properties[ipr]["color"], 
                          linestyle = labels_properties[ipr]["linestyle"])
@@ -493,7 +493,7 @@ def plot_compare_energy_tsteps(actual,
                             kex = 1,
                             cmap = cm.rainbow,
                             dt = .25,
-                            loc = "./plot_spec2.png"):
+                            loc = "./plot_ke2.png"):
                             
     fig, ax = plt.subplots(1, actual.shape[3], dpi = 200, figsize = (12,4))
     
@@ -524,3 +524,240 @@ def plot_compare_energy_tsteps(actual,
     plt.plot()
     plt.savefig(fname=loc, bbox_inches='tight')
     plt.close()
+    
+def plot_zonal_velocity_tsteps(actual,  
+                                preds,
+                                channels = ["psi1","psi2"],
+                                tsteps = [1, 28],
+                                dt = .25,
+                                loc = "./plot_vels.png"):
+                            
+    fig, ax = plt.subplots(1, len(channels), dpi = 200, figsize = (12,4))
+    
+    lats = np.arange(preds.shape[1])
+    
+    for ich, ch in enumerate(channels,0):
+        for itstep, tstep in enumerate(tsteps,0):
+            
+            [dpsidy, dpsidx] = np.gradient(preds[tstep,:,:,ich])
+            upred, vpred = -dpsidy, dpsidx
+            
+            # latitude mean
+            totvpred = np.sqrt(upred**2+vpred**2)
+            totvpred = np.mean(totvpred, axis = 1)
+            
+            ax[ich].plot(lats, 
+                         totvpred, 
+                         label = f"day = {np.around(tstep/4.,2)}")
+                
+        
+        [dpsidt, dpsidy, dpsidx] = np.gradient(actual[:,:,:,ich])
+        uactual, vactual = -dpsidy, dpsidx
+        totvactual = np.sqrt(uactual**2+vactual**2)
+        print(totvactual.shape)
+        totvactual = np.mean(np.mean(totvactual, axis = 2), axis = 0)
+        
+        ax[ich].plot(lats, totvactual, color = "black", linestyle = "--", label = f"actual (mean)", zorder = 20)
+        ax[ich].grid(alpha = .8)
+    
+    ax[len(channels)-1].legend(bbox_to_anchor=(1.1, 1.05))
+    for ich, ch in enumerate(channels,0):
+        ax[ich].set_title(ch)
+        
+    ax[0].set_xlabel(r"Lattitude")
+    ax[0].set_ylabel(r"Velocity")
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+    
+
+def plot_zonal_velocity_component_mean(actual,  
+                              preds,
+                              lats,
+                              channels = ["psi1","psi2"],
+                              dt = .25,
+                              loc = "./plot_vels.png"):
+                            
+    fig, ax = plt.subplots(2, len(channels), dpi = 200, figsize = (12,8))
+    
+    # lats = np.arange(preds.shape[1]) 
+    # lats = lats - (len(lats)-1)/2
+    for ich, ch in enumerate(channels,0):
+            
+        [dpsidt, dpsidy, dpsidx] = np.gradient(preds[:,:,:,ich])
+        upred, vpred = -dpsidy, dpsidx
+        
+        ax[0,ich].plot(lats, 
+                       upred.mean(axis=(2,0)), 
+                       color = "blue")
+                     
+        ax[1,ich].plot(lats, 
+                       vpred.mean(axis=(2,0)), 
+                       color = "blue")       
+        
+        [dpsidt, dpsidy, dpsidx] = np.gradient(actual[:,:,:,ich])
+        uactual, vactual = -dpsidy, dpsidx
+        totvactual = np.sqrt(uactual**2+vactual**2)
+        print(totvactual.shape)
+        totvactual = np.mean(np.mean(totvactual, axis = 2), axis = 0)
+        
+        
+        ax[0,ich].plot(lats, 
+                       uactual.mean(axis=(2,0)), 
+                       color = "black",
+                       linestyle = "--")  
+                     
+        ax[1,ich].plot(lats, 
+                       vactual.mean(axis=(2,0)), 
+                       color = "black",
+                       linestyle = "--")       
+        
+        ax[0,ich].grid(alpha = .8)
+        ax[1,ich].grid(alpha = .8)
+    
+    ax[0,1].legend(bbox_to_anchor=(1.1, 1.05))
+    for ich, ch in enumerate(channels,0):
+        ax[0,ich].set_title(ch)
+    
+    ax[0,0].set_title(r"$u_1$")
+    ax[1,0].set_title(r"$v_1$")
+    ax[0,1].set_title(r"$u_2$")
+    ax[1,1].set_title(r"$v_1$")
+        
+    ax[1,0].set_xlabel(r"Lattitude")
+    ax[1,1].set_xlabel(r"Lattitude")
+    ax[0,0].set_ylabel(r"Velocity")
+    ax[1,0].set_ylabel(r"Velocity")
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+
+def plot_zonal_velocity_norm_mean(actual,  
+                              preds,
+                              lats,
+                              channels = ["psi1","psi2"],
+                              dt = .25,
+                              loc = "./plot_vels.png"):
+                            
+    fig, ax = plt.subplots(1, len(channels), dpi = 200, figsize = (12,4))
+    
+    # lats = np.arange(preds.shape[1]) 
+    # lats = lats - (len(lats)-1)/2
+    for ich, ch in enumerate(channels,0):
+            
+        [dpsidt, dpsidy, dpsidx] = np.gradient(preds[:,:,:,ich])
+        upred, vpred = -dpsidy, dpsidx
+        
+        # latitup.arange(de mean
+        totvpred = np.sqrt(upred**2+vpred**2)
+        totvpred =  np.mean(np.mean(totvpred, axis = 2), axis = 0)
+        
+        ax[ich].plot(lats, 
+                     totvpred, 
+                     label = f"prediction (mean)")
+                
+        
+        [dpsidt, dpsidy, dpsidx] = np.gradient(actual[:,:,:,ich])
+        uactual, vactual = -dpsidy, dpsidx
+        totvactual = np.sqrt(uactual**2+vactual**2)
+        print(totvactual.shape)
+        totvactual = np.mean(np.mean(totvactual, axis = 2), axis = 0)
+        
+        ax[ich].plot(lats, totvactual, color = "black", linestyle = "--", label = f"actual (mean)", zorder = 20)
+        ax[ich].grid(alpha = .8)
+    
+    ax[len(channels)-1].legend(bbox_to_anchor=(1.1, 1.05))
+    ax[0].set_title(r"$|v_1|$")
+    ax[1].set_title(r"$|v_2|$")
+        
+    ax[0].set_xlabel(r"Lattitude")
+    ax[0].set_ylabel(r"Velocity Norm")
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+    
+def plot_zonal_temp_mean(actual,  
+                          preds,
+                          lats,
+                          dt = .25,
+                          loc = "./plot_vels.png"):
+                            
+    fig, ax = plt.subplots(1, 1, dpi = 200, figsize = (8,4))
+    
+    actual_temp = (actual[...,0] - actual[...,1]).mean(axis=(2,0))
+    pred_temp = (preds[...,0] - preds[...,1]).mean(axis=(2,0))
+
+
+    ax.plot(lats, actual_temp, label = "actual (mean)", color = "black", linestyle = "--")
+    ax.plot(lats, pred_temp, label = "prediction (mean)", color = "blue", linestyle = "-")
+    
+    ax.legend(bbox_to_anchor=(1.1, 1.05))
+    ax.set_xlabel(r"Lattitude")
+    ax.set_ylabel(r"$\psi_1-\psi_2$")
+    # ax.set_ylabel(r"Temperature")
+    ax.grid(alpha = .8)
+    
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+
+def plot_grid_temp_mean(actual,  
+                          preds,
+                          dt = .25,
+                          loc = "./plot_vels.png"):
+                            
+    fig, ax = plt.subplots(1, 2, dpi = 200, figsize = (8,4))
+    
+    actual_temp = (actual[...,0] - actual[...,1]).mean(axis=(0))
+    pred_temp = (preds[...,0] - preds[...,1]).mean(axis=(0))
+
+    ax[0].imshow(actual_temp)
+    gridplot = ax[1].imshow(pred_temp)
+    divider = make_axes_locatable(ax[1])
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+    fig.colorbar(gridplot, cax=cax, orientation='vertical')
+    
+    ax[0].set_xlabel(r"Lattitude")
+    ax[0].set_ylabel(r"Longitude")
+    # ax.set_ylabel(r"Temperature")
+    # ax.grid(alpha = .8)
+    ax[0].set_title("actual")
+    ax[1].set_title("prediction")
+    plt.plot()
+    plt.savefig(fname=loc, bbox_inches='tight')
+    plt.close()
+
+def plot_eofs(Ua, Up, lats, channel = "", loc = "./plot_eofs.png"):
+  fig, ax = plt.subplots(1, 3, dpi = 200, figsize = (12,4))
+  
+  ax[0].plot(lats, Up[:,0], label = "prediction", color = "blue")
+  ax[0].plot(lats, Ua[:,0], label = "actual", color = "black", linestyle = "--")
+  ax[0].set_title("Mean")
+  
+  ax[1].plot(lats, Up[:,1], label = "prediction", color = "blue")
+  ax[1].plot(lats, Ua[:,1], label = "actual", color = "black", linestyle = "--")
+  ax[1].set_title("EOF1")
+  
+  ax[2].plot(lats, Up[:,2], label = "prediction", color = "blue")
+  ax[2].plot(lats, Ua[:,2], label = "actual", color = "black", linestyle = "--")
+  ax[2].set_title("EOF2")
+  
+  ax[0].grid(alpha = .4)
+  ax[1].grid(alpha = .4)
+  ax[2].grid(alpha = .4)
+  
+  plt.suptitle(channel)
+  plt.savefig(fname=loc, bbox_inches='tight')
+  plt.close()
+  
+def plot_pdf(actual, preds, lats, channel = "", loc = "./plot_eofs.png"):
+  fig, ax = plt.subplots(1, 1, dpi = 200, figsize = (12,4))
+  
+  
+  
+  plt.suptitle(channel)
+  plt.savefig(fname=loc, bbox_inches='tight')
+  plt.close()
