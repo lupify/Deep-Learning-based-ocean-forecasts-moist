@@ -115,17 +115,16 @@ if False:
                    151 : moist_loc_151}
     data_loc = f"{output_dir}/models/singleSteps_twoOnly_test.pkl"
     
-if not os.path.exists(data_loc):
+# if not os.path.exists(data_loc):
     
     ## can change this to create date with/without channels, or can be done at a later step
-    
 
-    moists_keep_fno, moists_keep_fno_timestamps, moists_info = datau.data_prep_save(data_loc,
-                                                                                      moist_data_locs = moist_data_locs,
-                                                                                      channels = channels,
-                                                                                      save = True)
-else:
-    moists_keep_fno, moists_keep_fno_timestamps, moists_info =  datau.data_load(data_loc)
+moists_keep_fno, moists_keep_fno_timestamps, moists_info = datau.data_prep_save(data_loc,
+                                                                                    moist_data_locs = moist_data_locs,
+                                                                                    channels = channels,
+                                                                                    save = True)
+# else:
+#     moists_keep_fno, moists_keep_fno_timestamps, moists_info =  datau.data_load(data_loc)
 
 """
 step_methods -- 
@@ -355,7 +354,6 @@ for step_method, lambda_fft in param_vars:
                                                np.array([[epoch, step, loss.item()]])],
                                                axis = 0)
                                                
-            
         if not os.path.exists(nn_dir):
             os.makedirs(nn_dir)
         
@@ -435,7 +433,7 @@ for step_method, lambda_fft in param_vars:
           continue
         else:
           # actual = moists_keep_fno[test[0]][:autoregsteps+1]
-          ts_start = data_prep_args["ts_in"]
+          ts_start = data_prep_args["ts_in"]
           ts_start = 1000
           ## if the model only contains dry, and singleStep
           ## starting on the first valid step that can be made with autoregsteps, or another starting tstamp

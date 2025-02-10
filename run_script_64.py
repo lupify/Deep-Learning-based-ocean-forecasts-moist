@@ -15,6 +15,7 @@ from count_trainable_params import count_parameters
 import hdf5storage
 import gc
 import scipy.signal as signal
+from scipy import fft
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -536,9 +537,6 @@ for step_method, lambda_fft in param_vars:
             
             ## should implement a spectrum loss method to approximate differece between predicted and actual mean (right now it does actual snapshot)
         
-
-
-
 ## animatino of the actual data ouptut
 if 1:
     ## for actual prediction

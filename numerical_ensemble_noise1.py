@@ -49,12 +49,12 @@ def clear_mem():
 ################################################################
 # path_outputs = '/home/exouser/ocean_reanalysis_daily_other_baselines/outputs/'
 ## make sure that nimrod xl 1 is mounted correctly
-qgm_sim_dir = "/media/volume/sdc/qgm_sim/"
+# qgm_sim_dir = "/media/volume/sdc/qgm_sim/"
 
-qgm_names_noise = [q for q in os.listdir(qgm_sim_dir) if "gauss" in q]
-qgm_data_locs = {q.split("_")[-1] : os.path.join(qgm_sim_dir,q,"output.3d.nc") for q in qgm_names_noise}
+# qgm_names_noise = [q for q in os.listdir(qgm_sim_dir) if "gauss" in q]
+# qgm_data_locs = {q.split("_")[-1] : os.path.join(qgm_sim_dir,q,"output.3d.nc") for q in qgm_names_noise}
 
-qgm_names_noNoise_loc = os.path.join(qgm_sim_dir, 'load_resDir-151_noise-none_seed-0', "output.3d.nc")
+# qgm_names_noNoise_loc = os.path.join(qgm_sim_dir, 'load_resDir-151_noise-none_seed-0', "output.3d.nc")
 
 channels = {
             "psi1" : ["mean", "std"],
@@ -63,21 +63,37 @@ channels = {
            }
 channel_names = ["psi1","psi2", "m"]
 
+
+
+qgm_cur_dir = "/media/volume/qgm1/qgm_curated/gauss_noise_seed_151"
+qgm_data_locs = [q for q in os.listdir(qgm_cur_dir) if "gauss" in q]
+qgm_names_noNoise_loc = f"/media/volume/qgm1/qgm_curated/load_resDir-151_noise-none_seed-0.pkl"
+
+
 data_noise = None
 tsteps = 400
-ensemble_num = 100
+ensemble_num = len(qgm_data_locs)
 data_noise = np.empty((ensemble_num,tsteps,128,128,3))
 
 iq = 0
+
 for q in qgm_data_locs:
-    try:
-        data = nc.Dataset(qgm_data_locs[q])
-    except:
-        print(f"{q} nc not loading. Continuing...")
-        continue
-        
-    data_use = np.array(np.stack([data.variables["psi1"][:], data.variables["psi2"][:], data.variables["m"][:]],axis=3)).astype(float)
+    ## if nc
+    if False:
+      try:
+          data = nc.Dataset(qgm_data_locs[q])
+      except:
+          print(f"{q} nc not loading. Continuing...")
+          continue
+          
+      data_use = np.array(np.stack([data.variables["psi1"][:], data.variables["psi2"][:], data.variables["m"][:]],axis=3)).astype(float)
     
+    ## pkl
+    if True:
+      with open(os.path.join(qgm_cur_dir, q), "rb") as h:
+        pkl = pickle.load(h)
+        data_use = pkl["data"]
+        
     ## normalization
     for ich, ch in enumerate(channel_names, 0):
     
@@ -97,8 +113,14 @@ for q in qgm_data_locs:
     
 ## actual without noise
 ## normalization
-data = nc.Dataset(qgm_names_noNoise_loc)
-actual = np.array(np.stack([data.variables["psi1"][:], data.variables["psi2"][:], data.variables["m"][:]],axis=3)).astype(float)
+# data = nc.Dataset(qgm_names_noNoise_loc)
+
+with open(qgm_names_noNoise_loc, "rb") as h:
+  pkl = pickle.load(h)
+  data = pkl["data"]
+
+# actual = np.array(np.stack([data.variables["psi1"][:], data.variables["psi2"][:], data.variables["m"][:]],axis=3)).astype(float)
+actual = data
 
 for ich, ch in enumerate(channel_names, 0):
     if "std" in channels[ch]:
@@ -114,7 +136,7 @@ for ich, ch in enumerate(channel_names, 0):
 
   
 dt = .25
-
+savedir = "/media/volume/qgm1/lenny_outputs/model_output_noise/ic_noise_151"
 for steps in [50, 100, 400]:
   ## dke
   actual_steps = actual[:steps,...]
@@ -210,7 +232,7 @@ for steps in [50, 100, 400]:
     ax[im,0].set_ylabel(f"{metric}")
 
   plt.suptitle("Numerical Ensembles")
-  save_loc = f"/home/exouser/lenny_scripts/Deep-Learning-based-ocean-forecasts-moist/outputs/ic_noise/numericalEnsembles_steps-{steps}_metricsNew.png"
+  save_loc = f"{savedir}/numericalEnsembles_steps-{steps}_metricsNew.png"
   print(f"Saving fig: {save_loc}")
   plt.savefig(save_loc)
   plt.close()
